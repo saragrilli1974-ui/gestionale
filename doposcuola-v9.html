@@ -219,7 +219,7 @@ function loadDb(){
   if(!db.docenti)db.docenti=[];
   if(!db.disponibilita)db.disponibilita=[];
   if(!db.assegnazioni)db.assegnazioni=[];
-  if(!db.contatti)db.contatti=[];
+  if(!db.contatti)db.contatti=[];if(!db.nextRicevuta)db.nextRicevuta=1;
   if(db.contatti.length===0){
     const importati=CONTATTI_IMPORT;
     importati.forEach(c=>{db.contatti.push({...c,id:db.nextId++});});
@@ -275,7 +275,7 @@ function apriDettaglio(id){
   const pagamenti=db.pagamenti.filter(x=>x.studenteId===id).slice().reverse();
   const totOre=lezioni.filter(l=>l.stato==='Tenuta').reduce((a,l)=>a+(l.durata||1),0);
   const lezHtml=lezioni.length?lezioni.slice(0,15).map(l=>`<div class="lez-row"><span style="color:#9b9a94;min-width:88px;font-size:12px">${l.data}</span><span style="flex:1">${l.materia}</span><span style="color:#9b9a94;font-size:12px">${l.docente||'—'}</span><span style="color:#9b9a94;font-size:12px">${l.orario||''}</span><span class="badge ${l.stato==='Tenuta'?'green':l.stato==='Assente'?'red':'amber'}">${l.stato}</span><button class="btn danger sm" onclick="event.stopPropagation();eliminaLezione(${l.id},${id})"><i class="ti ti-trash"></i></button></div>`).join(''):'<div class="empty">Nessuna lezione registrata</div>';
-  const pagHtml=pagamenti.length?pagamenti.slice(0,8).map(pg=>`<div class="pag-row"><span style="color:#9b9a94;min-width:88px;font-size:12px">${pg.mese}</span><span style="flex:1">${pg.metodo}</span><span style="font-weight:600">€${pg.importo}</span><span class="badge ${pg.stato==='Pagato'?'green':'red'}">${pg.stato}</span><button class="btn danger sm" onclick="event.stopPropagation();eliminaPagamento(${pg.id},${id})"><i class="ti ti-trash"></i></button></div>`).join(''):'<div class="empty">Nessun pagamento registrato</div>';
+  const pagHtml=pagamenti.length?pagamenti.slice(0,8).map(pg=>`<div class="pag-row"><span style="color:#9b9a94;min-width:88px;font-size:12px">${pg.mese}</span><span style="flex:1">${pg.metodo}</span><span style="font-weight:600">€${pg.importo}</span><span class="badge ${pg.stato==='Pagato'?'green':'red'}">${pg.stato}</span><button class="btn sm" onclick="event.stopPropagation();generaRicevutaPDF(${pg.id})"><i class="ti ti-receipt"></i></button><button class="btn danger sm" onclick="event.stopPropagation();eliminaPagamento(${pg.id},${id})"><i class="ti ti-trash"></i></button></div>`).join(''):'<div class="empty">Nessun pagamento registrato</div>';
   document.getElementById('dettaglio-content').innerHTML=`
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:1.5rem;flex-wrap:wrap">
       <div class="avatar ${avColor(s.id)}" style="width:48px;height:48px;font-size:16px">${initials(s.nome,s.cognome)}</div>
@@ -302,7 +302,7 @@ function apriDettaglio(id){
         <div><div class="metric-label">Nome tutore</div><div style="font-size:13px;margin-top:2px">${s.tutoreNome||'—'}</div></div>
         <div><div class="metric-label">CF tutore</div><div style="font-size:13px;margin-top:2px;font-family:monospace">${s.tutoreCf||'—'}</div></div>
         <div><div class="metric-label">Email tutore</div><div style="font-size:13px;margin-top:2px">${s.tutoreEmail||'—'}</div></div>
-        <div><div class="metric-label">Telefono tutore</div><div style="font-size:13px;margin-top:2px">${s.tutoreTel||'—'}</div></div>
+        <div><div class="metric-label">Telefono tutore</div><div style="font-size:13px;margin-top:2px">${s.tutoreTel||'—'}</div></div><div><div class="metric-label">Indirizzo tutore</div><div style="font-size:13px;margin-top:2px">${s.tutoreIndirizzo||'—'}</div></div>
       </div>
       ${s.note?`<div class="section-title">Note</div><div style="font-size:13px;color:#6b6a65;background:#fafaf8;border-radius:8px;padding:10px">${s.note}</div>`:''}
     </div>
@@ -357,7 +357,123 @@ function apriWhatsApp(id){
   window.open(url,'_blank');
 }
 
-function generaPlanningPDF(id){
+function generaRicevutaPDF(pagamentoId){
+  const pg=db.pagamenti.find(p=>p.id===pagamentoId);if(!pg)return;
+  const s=db.studenti.find(x=>x.id===pg.studenteId);if(!s)return;
+  if(!pg.numeroRicevuta){pg.numeroRicevuta=db.nextRicevuta++;pg.dataRicevuta=new Date().toISOString().split('T')[0];saveDb();}
+  const anno=new Date(pg.dataRicevuta).getFullYear();
+  const intestatario=s.tutoreNome||(s.nome+' '+s.cognome);
+  const cfIntestatario=s.tutoreCf||s.cf||'';
+  const indirizzoIntestatario=s.tutoreIndirizzo||'';
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const pw = doc.internal.pageSize.getWidth();
+  const ml=14, mr=pw-14;
+
+  doc.setFontSize(20);
+  doc.setFont(undefined,'bold');
+  doc.setTextColor(30,30,30);
+  doc.text('DOPO', ml, 20);
+  doc.setTextColor(230,126,34);
+  doc.text('SCUOLA', ml+20, 20);
+  doc.setFont(undefined,'italic');
+  doc.setFontSize(13);
+  doc.setTextColor(30,30,30);
+  doc.text('online', ml+45, 20);
+
+  doc.setFont(undefined,'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(30,30,30);
+  doc.text('LOGICAMENTE APS', ml, 32);
+  doc.setFont(undefined,'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(80,80,80);
+  doc.text('Via Fezzana, 112/A', ml, 37.5);
+  doc.text('50025 Montespertoli FI, IT', ml, 42.5);
+  doc.setFont(undefined,'bold');
+  doc.text('CF:', ml, 47.5);
+  doc.setFont(undefined,'normal');
+  doc.text(' 94304680484', ml+6, 47.5);
+
+  let y=62;
+  doc.setFont(undefined,'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(30,30,30);
+  doc.text('Ricevuta n.', ml, y);
+  doc.setFont(undefined,'normal');
+  doc.setTextColor(80,80,80);
+  doc.text(`${pg.numeroRicevuta}/${anno}`, ml+32, y);
+  y+=6;
+  doc.setFont(undefined,'bold');
+  doc.setTextColor(30,30,30);
+  doc.text('Data emissione', ml, y);
+  doc.setFont(undefined,'normal');
+  doc.setTextColor(80,80,80);
+  doc.text(new Date(pg.dataRicevuta).toLocaleDateString('it-IT'), ml+32, y);
+  y+=6;
+  doc.setFont(undefined,'bold');
+  doc.setTextColor(30,30,30);
+  doc.text('Metodo di pagamento', ml, y);
+  doc.setFont(undefined,'normal');
+  doc.setTextColor(80,80,80);
+  doc.text(pg.metodo||'-', ml+40, y);
+
+  let yd=62;
+  doc.setFont(undefined,'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(30,30,30);
+  doc.text('Destinatario', mr, yd, {align:'right'});
+  yd+=6;
+  doc.setFont(undefined,'normal');
+  doc.setTextColor(60,60,60);
+  doc.text(intestatario, mr, yd, {align:'right'});
+  if(indirizzoIntestatario){yd+=5;doc.text(indirizzoIntestatario, mr, yd, {align:'right'});}
+  yd+=5;
+  doc.setFont(undefined,'bold');
+  doc.text(`CF ${cfIntestatario||'-'}`, mr, yd, {align:'right'});
+
+  let ty=Math.max(y,yd)+14;
+  doc.setFillColor(45,150,165);
+  doc.rect(ml,ty,mr-ml,8,'F');
+  doc.setTextColor(255,255,255);
+  doc.setFont(undefined,'bold');
+  doc.setFontSize(9);
+  doc.text('Tipo pagamento', ml+3, ty+5.5);
+  doc.text('Descrizione', ml+55, ty+5.5);
+  ty+=8;
+
+  const rowH=22;
+  doc.setDrawColor(230,230,230);
+  doc.rect(ml,ty,mr-ml,rowH);
+  doc.setTextColor(30,30,30);
+  doc.setFont(undefined,'bold');
+  doc.setFontSize(9);
+  doc.text(`Retta - ${pg.mese}`, ml+3, ty+7);
+  doc.text(`Doposcuolaonline / ${s.nome} ${s.cognome}`, ml+55, ty+7);
+  doc.setFont(undefined,'italic');
+  doc.setFontSize(8);
+  doc.setTextColor(90,90,90);
+  doc.text(`Iscritto: ${s.nome} ${s.cognome} - Codice Fiscale: ${s.cf||'-'}`, ml+55, ty+13);
+  doc.text(`Supporto scolastico e aiuto compiti - ${pg.mese}`, ml+55, ty+18, {maxWidth: mr-ml-58});
+  ty+=rowH;
+
+  doc.setFillColor(214,238,241);
+  doc.rect(ml,ty,mr-ml,9,'F');
+  doc.setTextColor(30,30,30);
+  doc.setFont(undefined,'bold');
+  doc.setFontSize(10);
+  doc.text('importo', ml+3, ty+6);
+  doc.text(`${Number(pg.importo).toFixed(2)} €`, mr-3, ty+6, {align:'right'});
+  ty+=9;
+
+  doc.setFont(undefined,'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(140,140,140);
+  doc.text("DoposcuolaOnline è un marchio dell'associazione di Promozione sociale LogicaMente", ml, ty+14);
+
+  doc.save(`ricevuta-${pg.numeroRicevuta}-${anno}-${s.cognome}-${s.nome}.pdf`);
+}
+  function generaPlanningPDF(id){
   const s=db.studenti.find(x=>x.id===id);if(!s)return;
   const wk=fmtDate(currentWeekStart);
   // Trova le lezioni della settimana corrente per questo studente, dalle assegnazioni in pianificazione
@@ -620,7 +736,7 @@ function renderPagamenti(){
   document.getElementById('p-da-incassare').textContent='€'+da;
   document.getElementById('p-paganti').textContent=new Set(arr.filter(p=>p.stato==='Pagato').map(p=>p.studenteId)).size;
   if(!arr.length){lista.innerHTML='<div class="empty">Nessun pagamento trovato</div>';return;}
-  lista.innerHTML=arr.map(p=>{const s=db.studenti.find(x=>x.id===p.studenteId);return`<div class="pag-row"><div class="avatar ${avColor(p.studenteId)}" style="width:28px;height:28px;font-size:11px;flex-shrink:0">${s?initials(s.nome,s.cognome):'?'}</div><span style="flex:1">${s?s.nome+' '+s.cognome:'Rimosso'}</span><span style="color:#9b9a94;font-size:12px">${p.mese}</span><span style="color:#9b9a94;font-size:12px">${p.metodo}</span><span style="font-weight:600">€${p.importo}</span><span class="badge ${p.stato==='Pagato'?'green':'red'}">${p.stato}</span><button class="btn danger sm" onclick="eliminaPagamento(${p.id},null)"><i class="ti ti-trash"></i></button></div>`;}).join('');
+  lista.innerHTML=arr.map(p=>{const s=db.studenti.find(x=>x.id===p.studenteId);return`<div class="pag-row"><div class="avatar ${avColor(p.studenteId)}" style="width:28px;height:28px;font-size:11px;flex-shrink:0">${s?initials(s.nome,s.cognome):'?'}</div><span style="flex:1">${s?s.nome+' '+s.cognome:'Rimosso'}</span><span style="color:#9b9a94;font-size:12px">${p.mese}</span><span style="color:#9b9a94;font-size:12px">${p.metodo}</span><span style="font-weight:600">€${p.importo}</span><span class="badge ${p.stato==='Pagato'?'green':'red'}">${p.stato}</span><button class="btn sm" onclick="generaRicevutaPDF(${p.id})"><i class="ti ti-receipt"></i></button><button class="btn danger sm" onclick="eliminaPagamento(${p.id},null)"><i class="ti ti-trash"></i></button></div>`;}).join('');
 }
 
 function renderLezioni(){
@@ -663,6 +779,7 @@ function openModal(tipo,arg){
         <div class="field"><label>CF tutore (per ricevute)</label><input id="f-tcf" value="${s?s.tutoreCf||'':''}" placeholder="Codice fiscale"></div>
         <div class="field"><label>Email tutore</label><input id="f-temail" value="${s?s.tutoreEmail||'':''}" placeholder="email tutore"></div>
         <div class="field"><label>Telefono tutore</label><input id="f-ttel" value="${s?s.tutoreTel||'':''}" placeholder="+39..."></div>
+        <div class="field" style="grid-column:1/-1"><label>Indirizzo tutore</label><input id="f-tindirizzo" value="${s?s.tutoreIndirizzo||'':''}" placeholder="Via, città, CAP"></div>
       </div>
       <div class="section-title">Piano e stato</div>
       <div class="grid2">
@@ -810,7 +927,7 @@ function salvaStudente(id){
   const nome=document.getElementById('f-nome').value.trim();
   const cognome=document.getElementById('f-cognome').value.trim();
   if(!nome||!cognome){alert('Nome e cognome sono obbligatori');return;}
-  const data={nome,cognome,email:document.getElementById('f-email').value.trim(),telefono:document.getElementById('f-tel').value.trim(),dataNascita:document.getElementById('f-nascita').value,cf:document.getElementById('f-cf').value.trim().toUpperCase(),indirizzo:document.getElementById('f-indirizzo').value.trim(),dataIscrizione:document.getElementById('f-iscrizione').value,tutoreNome:document.getElementById('f-tnome').value.trim(),tutoreCf:document.getElementById('f-tcf').value.trim().toUpperCase(),tutoreEmail:document.getElementById('f-temail').value.trim(),tutoreTel:document.getElementById('f-ttel').value.trim(),piano:document.getElementById('f-piano').value,attivo:document.getElementById('f-attivo').value==='1',note:document.getElementById('f-note').value.trim()};
+  const data={nome,cognome,email:document.getElementById('f-email').value.trim(),telefono:document.getElementById('f-tel').value.trim(),dataNascita:document.getElementById('f-nascita').value,cf:document.getElementById('f-cf').value.trim().toUpperCase(),indirizzo:document.getElementById('f-indirizzo').value.trim(),dataIscrizione:document.getElementById('f-iscrizione').value,tutoreNome:document.getElementById('f-tnome').value.trim(),tutoreCf:document.getElementById('f-tcf').value.trim().toUpperCase(),tutoreEmail:document.getElementById('f-temail').value.trim(),tutoreTel:document.getElementById('f-ttel').value.trim(),tutoreIndirizzo:document.getElementById('f-tindirizzo').value.trim(),piano:document.getElementById('f-piano').value,attivo:document.getElementById('f-attivo').value==='1',note:document.getElementById('f-note').value.trim()};
   if(id!==null&&id!==undefined&&!isNaN(id)){const i=db.studenti.findIndex(s=>s.id===id);if(i>=0)db.studenti[i]={...db.studenti[i],...data};saveDb();closeModal();renderAll();apriDettaglio(id);}
   else{data.id=db.nextId++;db.studenti.push(data);saveDb();closeModal();renderAll();}
 }
