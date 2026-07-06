@@ -180,9 +180,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <option>Social</option>
         <option>WhatsApp</option>
         <option>Mailchimp</option>
+        <option>Facebook</option>
         <option>Altro</option>
       </select>
       <button class="btn primary" onclick="openModal('nuovo-contatto')"><i class="ti ti-plus"></i> Nuovo contatto</button>
+      <button class="btn" onclick="importaGoogleSheet()"><i class="ti ti-cloud-download"></i> Importa da Google Sheet</button>
     </div>
     <div class="card" style="padding:0 1.25rem"><div id="lista-contatti"></div></div>
   </div>
@@ -934,7 +936,36 @@ function switchTab(t){
   if(t==='contatti')renderContatti();
 }
 
-loadDb();
+async function importaGoogleSheet(){
+  const sheetId='1T3t2yi6vGZlgTxRRX8LZH6QaPNCP4osaWSXQQ1QeX0M';
+  const url=`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json`;
+  try{
+    const res=await fetch(url);
+    const text=await res.text();
+    const json=JSON.parse(text.substring(47,text.length-2));
+    const rows=json.table.rows;
+    let importati=0,saltati=0;
+    rows.forEach(r=>{
+      const cells=r.c;
+      const nome=(cells[0]&&cells[0].v)?String(cells[0].v).trim():'';
+      const email=(cells[1]&&cells[1].v)?String(cells[1].v).trim():'';
+      const telefono=(cells[2]&&cells[2].v)?String(cells[2].v).trim():'';
+      const fonte=(cells[3]&&cells[3].v)?String(cells[3].v).trim():'Facebook';
+      if(!nome&&!telefono&&!email){return;}
+      const giaEsiste=db.contatti.find(c=>(telefono&&c.telefono===telefono)||(email&&c.email===email&&email!==''));
+      if(giaEsiste){saltati++;return;}
+      db.contatti.push({id:db.nextId++,nome:nome||'(senza nome)',cognome:'',telefono,email,categoria:'Genitore interessato',fonte:'Facebook',note:fonte?`Fonte modulo: ${fonte}`:''});
+      importati++;
+    });
+    saveDb();
+    renderContatti();
+    alert(`Importazione completata: ${importati} nuovi contatti aggiunti, ${saltati} già presenti (saltati).`);
+  }catch(e){
+    alert('Errore durante l\'importazione. Controlla che il Google Sheet sia condiviso come "Chiunque abbia il link - Visualizzatore".');
+    console.error(e);
+  }
+}
+  loadDb();
 </script>
 </body>
 </html>
