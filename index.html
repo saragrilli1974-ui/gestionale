@@ -91,6 +91,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" style="width:100%;box-sizing:border-box;padding:12px 14px;margin-bottom:6px;border:1px solid #d1d5db;border-radius:10px;font-size:15px;" onkeydown="if(event.key==='Enter')doLogin()">
     <div id="login-error" style="color:#dc2626;font-size:13px;min-height:18px;margin-bottom:8px;"></div>
     <button id="login-btn" onclick="doLogin()" style="width:100%;padding:12px;background:#4f46e5;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;">Entra</button>
+    <div style="text-align:center;margin-top:12px;"><a href="#" onclick="resetPassword();return false;" style="color:#4f46e5;font-size:13px;text-decoration:none;">Password dimenticata?</a></div>
     <p style="margin:18px 0 0;color:#9ca3af;font-size:12px;">Accesso riservato — LogicaMente APS</p>
   </div>
 </div>
@@ -430,6 +431,17 @@ function doLogin(){
   fbAuth.signInWithEmailAndPassword(em,pw)
     .catch(e=>{console.error(e);err.textContent='Email o password errati.';})
     .finally(()=>{btn.disabled=false;btn.textContent='Entra';});
+}
+
+function resetPassword(){
+  const err=document.getElementById('login-error');
+  err.textContent='';
+  let em=document.getElementById('login-email').value.trim();
+  if(!em){em=(prompt('Inserisci la tua email per ricevere il link di reimpostazione password:')||'').trim();}
+  if(!em){return;}
+  fbAuth.sendPasswordResetEmail(em)
+    .then(()=>{err.style.color='#16a34a';err.textContent='Ti abbiamo inviato un\u2019email per reimpostare la password. Controlla anche lo spam.';})
+    .catch(e=>{console.error(e);err.style.color='#dc2626';err.textContent='Non riesco a inviare l\u2019email. Controlla che l\u2019indirizzo sia corretto.';});
 }
 
 function doLogout(){
