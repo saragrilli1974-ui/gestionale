@@ -296,8 +296,10 @@ const PIANI=[{id:'5g',label:'5 giorni — 10h/sett',prezzo:220},{id:'4g',label:'
 const METODI=['Bonifico','PayPal','Postepay'];
 const TUTTE_MATERIE=['Inglese','Economia e diritto','Economia aziendale','Tedesco','Matematica e Fisica','Francese','Spagnolo','Greco e Latino','Materie Umanistiche','Chimica e Biologia','Elettrotecnica','Elettronica, controlli automatici, Telecomunicazioni'];
 const STATI_LEZ=['Tenuta','Da confermare','Assente','Assente giustificata','Docente assente'];
-const GIORNI=['Lunedì','Martedì','Mercoledì','Giovedì','Venerdì'];
-const ORARI=['14:00','15:00','16:00','17:00','18:00','19:00','20:00'];
+const GIORNI=['Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato','Domenica'];
+const ORARI=(()=>{const a=[];for(let h=8;h<=20;h++){a.push((h<10?'0'+h:h)+':00');if(h<20)a.push((h<10?'0'+h:h)+':30');}return a;})();
+/* Converte "HH:MM" nel numero di minuti dalla mezzanotte, per calcoli che tengano conto delle mezz'ore */
+function oraMin(s){if(!s)return 0;const p=String(s).split(':');return (parseInt(p[0])||0)*60+(parseInt(p[1])||0);}
 const MAX_ST=5;
 
 let db={studenti:[],docenti:[],pagamenti:[],lezioni:[],disponibilita:[],assegnazioni:[],contatti:[],archivio:[],tutori:[],nextId:1};
@@ -1005,8 +1007,8 @@ function renderPianificazione(){
         html+=`<div style="margin-bottom:8px"><div style="font-size:12px;font-weight:600;color:#6b6a65;margin-bottom:4px">${giorno} ${dataG.split('-').slice(1).reverse().join('/')}</div>`;
         slots.forEach(slot=>{
           const ass=db.assegnazioni.filter(a=>a.disponibilitaId===slot.id);
-          const hI=parseInt(slot.oraInizio),hF=parseInt(slot.oraFine);
-          let n=0;for(let h=hI;h<hF;h++){const c=ass.filter(a=>parseInt(a.oraInizio)<=h&&h<parseInt(a.oraFine)).length;if(c>n)n=c;}
+          const hI=oraMin(slot.oraInizio),hF=oraMin(slot.oraFine);
+          let n=0;for(let m=hI;m<hF;m+=30){const c=ass.filter(a=>oraMin(a.oraInizio)<=m&&m<oraMin(a.oraFine)).length;if(c>n)n=c;}
           const colore=n>=MAX_ST?'red':n>=MAX_ST-1?'amber':'green';
           html+=`<div style="display:flex;align-items:center;gap:8px;background:#fafaf8;border-radius:8px;padding:8px 10px;margin-bottom:4px;flex-wrap:wrap">
             <span style="font-weight:500;min-width:100px">${slot.oraInizio}–${slot.oraFine}</span>
@@ -1154,9 +1156,8 @@ function caricaDalPlanning(){
   const giorno=document.getElementById('presenze-data').value||oggiStr();
   const [y,m,d]=giorno.split('-').map(Number);
   const dataObj=new Date(y,m-1,d);
-  const idxGiorno=dataObj.getDay(); /* 0=domenica */
-  if(idxGiorno===0||idxGiorno===6){alert('La data selezionata cade nel weekend: nel planning non ci sono lezioni.');return;}
-  const nomeGiorno=GIORNI[idxGiorno-1];
+  const idxGiorno=dataObj.getDay(); /* 0=domenica, 1=lunedì ... 6=sabato */
+  const nomeGiorno=idxGiorno===0?'Domenica':GIORNI[idxGiorno-1];
   let sett=weekKey(giorno);
   let ass=db.assegnazioni.filter(a=>a.settimana===sett&&a.giorno===nomeGiorno);
   if(!ass.length){
@@ -1173,7 +1174,7 @@ function caricaDalPlanning(){
     const orario=`${a.oraInizio}–${a.oraFine}`;
     const esiste=db.lezioni.find(l=>l.studenteId===a.studenteId&&l.data===giorno&&l.orario===orario);
     if(esiste){saltate++;return;}
-    const durata=Math.max(1,parseInt(a.oraFine)-parseInt(a.oraInizio))||1;
+    const durata=Math.max(0.5,(oraMin(a.oraFine)-oraMin(a.oraInizio))/60)||1;
     db.lezioni.push({id:db.nextId++,studenteId:a.studenteId,data:giorno,orario,materia:a.materia,docente:a.docente||'',durata,stato:'Da confermare',note:''});
     create++;
   });
@@ -1319,8 +1320,8 @@ function openModal(tipo,arg){
       <div class="grid2">
         <div class="field"><label>Settimana di riferimento</label><input type="date" id="disp-settimana" value="${wk}" onchange="aggiornaGiorniDisp()"></div>
         <div class="field"><label>Giorno *</label><select id="disp-giorno">${giorOpt}</select></div>
-        <div class="field"><label>Ora inizio *</label><select id="disp-ora-inizio">${ORARI.map(o=>`<option>${o}</option>`).join('')}</select></div>
-        <div class="field"><label>Ora fine *</label><select id="disp-ora-fine">${ORARI.map((o,i)=>`<option${i===2?' selected':''}>${o}</option>`).join('')}</select></div>
+        <div class="field"><label>Ora inizio *</label><select id="disp-ora-inizio">${ORARI.map(o=>`<option${o==='14:00'?' selected':''}>${o}</option>`).join('')}</select></div>
+        <div class="field"><label>Ora fine *</label><select id="disp-ora-fine">${ORARI.map(o=>`<option${o==='15:00'?' selected':''}>${o}</option>`).join('')}</select></div>
       </div>
       <div class="section-title">Materie disponibili in questo slot</div>
       <div style="background:#fafaf8;border-radius:8px;padding:12px" id="disp-materie-wrap"><div style="font-size:13px;color:#9b9a94">Seleziona prima un docente</div></div>
@@ -1411,10 +1412,13 @@ function aggiornaOrarioAss(){
   const sel=document.getElementById('ass-orario');if(!sel)return;
   const slot=db.disponibilita.find(x=>x.id===slotId);
   if(!slot){sel.innerHTML='<option value="">— seleziona slot prima —</option>';return;}
-  const hI=parseInt(slot.oraInizio),hF=parseInt(slot.oraFine);
+  const hI=oraMin(slot.oraInizio),hF=oraMin(slot.oraFine);
+  const fmt=m=>{const h=Math.floor(m/60),mm=m%60;return (h<10?'0'+h:h)+':'+(mm<10?'0'+mm:mm);};
   let opts='';
-  for(let h=hI;h<hF;h++){opts+=`<option value="${h}:00|${h+1}:00">${h}:00–${h+1}:00 (1 ora)</option>`;}
-  if(hF-hI>1)opts+=`<option value="${slot.oraInizio}|${slot.oraFine}">Tutto lo slot ${slot.oraInizio}–${slot.oraFine} (${hF-hI} ore)</option>`;
+  for(let m=hI;m<hF;m+=30){opts+=`<option value="${fmt(m)}|${fmt(m+30)}">${fmt(m)}–${fmt(m+30)} (30 min)</option>`;}
+  for(let m=hI;m+60<=hF;m+=30){opts+=`<option value="${fmt(m)}|${fmt(m+60)}">${fmt(m)}–${fmt(m+60)} (1 ora)</option>`;}
+  const tot=(hF-hI)/60;
+  if(hF-hI>60)opts+=`<option value="${slot.oraInizio}|${slot.oraFine}">Tutto lo slot ${slot.oraInizio}–${slot.oraFine} (${tot% 1===0?tot:tot.toFixed(1)} ore)</option>`;
   sel.innerHTML=opts;
 }
 
@@ -1469,6 +1473,7 @@ function salvaDisponibilita(){
   const oraFine=document.getElementById('disp-ora-fine').value;
   const settimana=weekKey(document.getElementById('disp-settimana').value);
   if(!docId||!giorno||!oraInizio||!oraFine){alert('Compila tutti i campi obbligatori');return;}
+  if(oraMin(oraFine)<=oraMin(oraInizio)){alert('L\'ora di fine deve essere successiva all\'ora di inizio.');return;}
   const materie=[...document.querySelectorAll('.disp-mat:checked')].map(x=>x.value);
   db.disponibilita.push({id:db.nextId++,docenteId:docId,giorno,oraInizio,oraFine,settimana,materie});
   dispDirty=true;
@@ -1494,7 +1499,7 @@ function salvaAssegnazione(){
     return;
   }
   const doc=db.docenti.find(x=>x.id===slot.docenteId);
-  const durata=Math.max(1,parseInt(oraF)-parseInt(oraI));
+  const durata=Math.max(0.5,(oraMin(oraF)-oraMin(oraI))/60);
   db.assegnazioni.push({id:db.nextId++,disponibilitaId:slotId,studenteId:stId,materia,docente:doc?doc.nome+' '+doc.cognome:'',giorno:slot.giorno,oraInizio:oraI,oraFine:oraF,settimana:slot.settimana});
   planDirty=true;
   const gi=GIORNI.indexOf(slot.giorno);
@@ -1569,8 +1574,8 @@ async function loadPortaleDocente(){
   document.getElementById('pd-nome').textContent='— '+docentePortale.nome;
   const gSel=document.getElementById('pd-giorno');
   gSel.innerHTML=GIORNI.map(g=>`<option>${g}</option>`).join('');
-  document.getElementById('pd-ora-inizio').innerHTML=ORARI.map(o=>`<option>${o}</option>`).join('');
-  document.getElementById('pd-ora-fine').innerHTML=ORARI.map((o,i)=>`<option${i===2?' selected':''}>${o}</option>`).join('');
+  document.getElementById('pd-ora-inizio').innerHTML=ORARI.map(o=>`<option${o==='14:00'?' selected':''}>${o}</option>`).join('');
+  document.getElementById('pd-ora-fine').innerHTML=ORARI.map(o=>`<option${o==='15:00'?' selected':''}>${o}</option>`).join('');
   const mw=document.getElementById('pd-materie-wrap');
   mw.innerHTML=(docentePortale.materie&&docentePortale.materie.length)
     ?'<b>Materie:</b> '+docentePortale.materie.map(m=>`<label style="margin-right:10px;white-space:nowrap"><input type="checkbox" class="pd-mat" value="${m}" checked> ${m}</label>`).join('')
