@@ -311,11 +311,12 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const fbAuth=firebase.auth();
 const fbStore=firebase.firestore();
-const DB_COLLECTIONS=['studenti','docenti','pagamenti','lezioni','disponibilita','assegnazioni','contatti'];
+const DB_COLLECTIONS=['studenti','docenti','pagamenti','lezioni','disponibilita','assegnazioni','contatti','archivio'];
 /* Le disponibilità NON si salvano più nel faldone unico: ogni docente ha il suo (disponibilitaDocenti/{id}) */
-const DB_SAVE=['studenti','docenti','pagamenti','lezioni','assegnazioni','contatti'];
+const DB_SAVE=['studenti','docenti','pagamenti','lezioni','assegnazioni','contatti','archivio'];
 let cloudReady=false;
 let syncTimer=null;
+let archivioSeeded=false;       /* le anagrafiche storiche sono state caricate in questa sessione? */
 let ruoloUtente='segreteria';   /* 'segreteria' oppure 'docente' */
 let docentePortale=null;        /* dati del docente loggato: {docenteId,nome,materie} */
 let dispDirty=false;            /* la segreteria ha modificato le disponibilità? */
@@ -392,6 +393,14 @@ async function loadDbCloud(){
       DB_COLLECTIONS.forEach(k=>{if(data[k]&&Array.isArray(data[k].items))db[k]=data[k].items;});
       if(data.meta){db.nextId=data.meta.nextId||1;db.nextRicevuta=data.meta.nextRicevuta||1;}
       if(!db.nextRicevuta)db.nextRicevuta=1;
+      if(!db.archivio)db.archivio=[];
+      if(db.archivio.length===0 && !archivioSeeded && typeof ARCHIVIO_IMPORT!=='undefined'){
+        /* SEED ARCHIVIO (una volta sola): carica le anagrafiche storiche di ScuolaSemplice e le salva sul cloud */
+        ARCHIVIO_IMPORT.forEach(a=>{db.archivio.push({id:db.nextId++,nome:a.nome||'',cognome:a.cognome||'',email:a.email||'',cellulare:a.cellulare||'',citta:a.citta||'',indirizzo:a.indirizzo||'',cf:a.cf||'',note:a.note||''});});
+        archivioSeeded=true;
+        saveDbCloud();
+        console.log('Seed archivio: caricate '+db.archivio.length+' anagrafiche storiche.');
+      }
       if(!dispSnap.empty){
         /* Nuova struttura: le disponibilità arrivano dai faldoni per-docente */
         let tutte=[];
@@ -1677,11 +1686,9 @@ async function abilitaAccessoDocente(docId){
 
 /* ===== ARCHIVIO ANAGRAFICHE (storico ScuolaSemplice) ===== */
 function seedArchivioSeNecessario(){
+  /* Disattivato: il seed dell'archivio ora avviene in loadDbCloud() dopo aver letto Firestore,
+     per evitare che il cloud sovrascriva le anagrafiche appena caricate. */
   if(!db.archivio)db.archivio=[];
-  if(db.archivio.length===0 && typeof ARCHIVIO_IMPORT!=='undefined'){
-    ARCHIVIO_IMPORT.forEach(a=>{db.archivio.push({id:db.nextId++,nome:a.nome||'',cognome:a.cognome||'',email:a.email||'',cellulare:a.cellulare||'',citta:a.citta||'',indirizzo:a.indirizzo||'',cf:a.cf||'',note:a.note||''});});
-    saveDb();
-  }
 }
 
 function renderArchivio(){
