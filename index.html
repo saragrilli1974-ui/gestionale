@@ -661,7 +661,7 @@ function apriWhatsApp(id){
     });
   }
 
-  const url=`https://wa.me/${numeroPulito}?text=${encodeURIComponent(testo)}`;
+  const url=`https://web.whatsapp.com/send?phone=${numeroPulito}&text=${encodeURIComponent(testo)}`;
   window.open(url,'_blank');
 }
 
@@ -973,7 +973,7 @@ function apriWhatsAppContatto(id){
     else if(numero.startsWith('3'))numero='+39'+numero;
     else numero='+'+numero;
   }
-  const url=`https://wa.me/${numero.replace('+','')}`;
+  const url=`https://web.whatsapp.com/send?phone=${numero.replace('+','')}`;
   window.open(url,'_blank');
 }
 
@@ -1220,7 +1220,7 @@ function notificaDocenteLezione(docNome,studenteId,dataLez,orario,materia,isRecu
   if(!num)return; /* nessun numero in anagrafica: salto senza disturbare */
   if(!confirm(`Lezione salvata! Vuoi inviare la notifica WhatsApp a ${doc.nome} ${doc.cognome}?`))return;
   const testo=`Ciao ${doc.nome}! Ti confermiamo una ${isRecupero?'lezione di RECUPERO':'nuova lezione'}:\n${fmtDataIT(dataLez)} ore ${orario} — ${materia} con ${s.nome} ${s.cognome}.\nLogicaMente APS`;
-  window.open(`https://wa.me/${num}?text=${encodeURIComponent(testo)}`,'_blank');
+  window.open(`https://web.whatsapp.com/send?phone=${num}&text=${encodeURIComponent(testo)}`,'_blank');
 }
 
 function openModal(tipo,arg){
@@ -1733,7 +1733,7 @@ function renderArchivio(){
     arr=arr.slice().sort((x,y)=>((x.cognome||'')+(x.nome||'')).localeCompare((y.cognome||'')+(y.nome||'')));
     if(arr.length===0){lista.innerHTML='<div class="empty">Nessun tutore trovato</div>';return;}
     lista.innerHTML='<div style="padding:8px 0;color:#9b9a94;font-size:12px">'+arr.length+' tutori</div>'+arr.map(a=>{
-      const tel=a.cellulare?`<a href="https://wa.me/${a.cellulare.replace(/[^0-9]/g,'')}" target="_blank" style="color:#25d366;text-decoration:none">${a.cellulare}</a>`:'';
+      const tel=a.cellulare?`<a href="https://web.whatsapp.com/send?phone=${a.cellulare.replace(/[^0-9]/g,'')}" target="_blank" style="color:#25d366;text-decoration:none">${a.cellulare}</a>`:'';
       const em=a.email?`<a href="mailto:${a.email}" style="color:#4f46e5;text-decoration:none">${a.email}</a>`:'';
       const meta=[em,tel,a.citta].filter(Boolean).join(' · ');
       return `<div class="lez-row" style="align-items:flex-start">
@@ -1752,7 +1752,7 @@ function renderArchivio(){
   arr=arr.slice().sort((x,y)=>((x.cognome||'')+(x.nome||'')).localeCompare((y.cognome||'')+(y.nome||'')));
   if(arr.length===0){lista.innerHTML='<div class="empty">Nessuna anagrafica trovata</div>';return;}
   lista.innerHTML='<div style="padding:8px 0;color:#9b9a94;font-size:12px">'+arr.length+' ex studenti</div>'+arr.map(a=>{
-    const tel=a.cellulare?`<a href="https://wa.me/${a.cellulare.replace(/[^0-9]/g,'')}" target="_blank" style="color:#25d366;text-decoration:none">${a.cellulare}</a>`:'';
+    const tel=a.cellulare?`<a href="https://web.whatsapp.com/send?phone=${a.cellulare.replace(/[^0-9]/g,'')}" target="_blank" style="color:#25d366;text-decoration:none">${a.cellulare}</a>`:'';
     const em=a.email?`<a href="mailto:${a.email}" style="color:#4f46e5;text-decoration:none">${a.email}</a>`:'';
     const meta=[em,tel,a.citta].filter(Boolean).join(' · ');
     const note=a.note?`<div style="font-size:11px;color:#9b9a94;margin-top:2px">${a.note}</div>`:'';
