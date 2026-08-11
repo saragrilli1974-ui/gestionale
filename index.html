@@ -269,6 +269,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       </select>
       <button class="btn primary" onclick="openModal('nuovo-contatto')"><i class="ti ti-plus"></i> Nuovo contatto</button>
       <button class="btn" onclick="importaGoogleSheet()"><i class="ti ti-cloud-download"></i> Importa da Google Sheet</button>
+      <button class="btn" style="background:#0B996E;color:#fff;border-color:#0B996E" onclick="esportaEmailBrevo()"><i class="ti ti-mail-forward"></i> Esporta email per Brevo</button>
     </div>
     <div class="card" style="padding:0 1.25rem"><div id="lista-contatti"></div></div>
   </div>
@@ -1909,6 +1910,44 @@ function switchTab(t){
   if(t==='docenti')renderDocenti();
   if(t==='contatti')renderContatti();
   if(t==='archivio')renderArchivio();
+}
+
+/* Esporta i contatti con email valida in un file CSV pronto da caricare su Brevo.
+   Colonne: NOME, COGNOME, EMAIL. Salta chi non ha email ed elimina i duplicati per email. */
+function esportaEmailBrevo(){
+  /* Controllo email di base: deve contenere @ e un punto dopo */
+  const emailValida=e=>{const s=(e||'').trim();return s.includes('@')&&/\.[a-z]{2,}$/i.test(s);};
+
+  const visti=new Set();
+  const righe=[];
+  db.contatti.forEach(c=>{
+    const email=(c.email||'').trim().toLowerCase();
+    if(!emailValida(email))return;
+    if(visti.has(email))return; /* niente doppioni */
+    visti.add(email);
+    righe.push({nome:(c.nome||'').trim(),cognome:(c.cognome||'').trim(),email:(c.email||'').trim()});
+  });
+
+  if(!righe.length){alert('Nessun contatto con email valida da esportare.');return;}
+
+  /* Metto tra virgolette e raddoppio eventuali virgolette interne, per un CSV sempre corretto */
+  const q=v=>`"${String(v).replace(/"/g,'""')}"`;
+  let csv='NOME,COGNOME,EMAIL\n';
+  righe.forEach(r=>{csv+=`${q(r.nome)},${q(r.cognome)},${q(r.email)}\n`;});
+
+  /* BOM iniziale così Excel/Brevo leggono bene le lettere accentate */
+  const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const oggi=new Date().toISOString().split('T')[0];
+  a.href=url;
+  a.download=`contatti-brevo-${oggi}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  alert(`Fatto! Esportati ${righe.length} contatti con email nel file "contatti-brevo-${oggi}.csv".\n\nOra caricalo su Brevo: menu Contatti → Importa contatti.`);
 }
 
 async function importaGoogleSheet(){
