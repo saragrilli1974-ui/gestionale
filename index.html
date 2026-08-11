@@ -1920,12 +1920,22 @@ function esportaEmailBrevo(){
 
   const visti=new Set();
   const righe=[];
+  /* Pulizia nomi: tolgo caratteri che possono rompere il CSV o sono spazzatura
+     (parentesi quadre/graffe, virgolette, a capo, emoji e simboli non standard) */
+  const pulisci=v=>{
+    let s=String(v||'');
+    s=s.replace(/[\r\n\t]/g,' ');           /* a capo e tab → spazio */
+    s=s.replace(/[\[\]{}<>"]/g,'');          /* parentesi quadre/graffe/angolari e virgolette */
+    s=s.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu,''); /* emoji e simboli */
+    s=s.replace(/\s+/g,' ').trim();          /* spazi multipli → uno solo */
+    return s;
+  };
   db.contatti.forEach(c=>{
     const email=(c.email||'').trim().toLowerCase();
     if(!emailValida(email))return;
     if(visti.has(email))return; /* niente doppioni */
     visti.add(email);
-    righe.push({nome:(c.nome||'').trim(),cognome:(c.cognome||'').trim(),email:(c.email||'').trim()});
+    righe.push({nome:pulisci(c.nome),cognome:pulisci(c.cognome),email:(c.email||'').trim()});
   });
 
   if(!righe.length){alert('Nessun contatto con email valida da esportare.');return;}
