@@ -191,6 +191,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <button class="btn" onclick="ricaricaDisponibilita()" title="Ricarica le disponibilità aggiornate dai docenti"><i class="ti ti-refresh"></i> Aggiorna</button>
     <button class="btn success" onclick="openModal('nuova-disponibilita')"><i class="ti ti-calendar-plus"></i> Disponibilità</button>
     <button class="btn primary" onclick="openModal('nuova-assegnazione')"><i class="ti ti-user-plus"></i> Assegna</button>
+    <button class="btn" style="background:#25D366;color:#fff;border-color:#25D366" onclick="inviaPlanningDocenti()"><i class="ti ti-brand-whatsapp"></i> Invia planning ai docenti</button>
   </div>
   <div id="pianificazione-content"></div>
 </div>
@@ -997,7 +998,9 @@ function renderPianificazione(){
   let html='';
   docentiAttivi.forEach(doc=>{
     const dispSett=db.disponibilita.filter(d=>d.docenteId===doc.id&&d.settimana===wk);
-    html+=`<div class="card"><div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap"><div class="avatar ${avColor(doc.id)}" style="width:32px;height:32px;font-size:12px">${initials(doc.nome,doc.cognome)}</div><div style="font-weight:600;font-size:14px;flex:1">${doc.nome} ${doc.cognome}</div><button class="btn sm" onclick="openModal('nuova-disponibilita',${doc.id})"><i class="ti ti-calendar-plus"></i> Aggiungi slot</button></div>`;
+    const haLezioni=db.assegnazioni.some(a=>a.settimana===wk&&a.docente===(doc.nome+' '+doc.cognome));
+    const btnAggiorna=haLezioni?`<button class="btn sm" style="background:#25D366;color:#fff;border-color:#25D366" onclick="inviaPlanningSingoloDocente(${doc.id})" title="Invia l'aggiornamento della pianificazione a questo docente"><i class="ti ti-brand-whatsapp"></i> Aggiorna planning</button>`:'';
+    html+=`<div class="card"><div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap"><div class="avatar ${avColor(doc.id)}" style="width:32px;height:32px;font-size:12px">${initials(doc.nome,doc.cognome)}</div><div style="font-weight:600;font-size:14px;flex:1">${doc.nome} ${doc.cognome}</div>${btnAggiorna}<button class="btn sm" onclick="openModal('nuova-disponibilita',${doc.id})"><i class="ti ti-calendar-plus"></i> Aggiungi slot</button></div>`;
     if(!dispSett.length){html+=`<div style="font-size:13px;color:#9b9a94;padding:4px 0">Nessuna disponibilità per questa settimana.</div>`;}
     else{
       GIORNI.forEach((giorno,gi)=>{
@@ -1220,6 +1223,94 @@ function notificaDocenteLezione(docNome,studenteId,dataLez,orario,materia,isRecu
   if(!num)return; /* nessun numero in anagrafica: salto senza disturbare */
   if(!confirm(`Lezione salvata! Vuoi inviare la notifica WhatsApp a ${doc.nome} ${doc.cognome}?`))return;
   const testo=`Ciao ${doc.nome}! Ti confermiamo una ${isRecupero?'lezione di RECUPERO':'nuova lezione'}:\n${fmtDataIT(dataLez)} ore ${orario} — ${materia} con ${s.nome} ${s.cognome}.\nLogicaMente APS`;
+  window.open(`https://web.whatsapp.com/send?phone=${num}&text=${encodeURIComponent(testo)}`,'whatsappGestionale');
+}
+
+/* Unisce una lista di nomi con le virgole e la "e" finale: "Anna, Rosa e Marco" */
+function uniscreNomi(nomi){
+  if(nomi.length===0)return '';
+  if(nomi.length===1)return nomi[0];
+  return nomi.slice(0,-1).join(', ')+' e '+nomi[nomi.length-1];
+}
+
+/* Costruisce il testo del messaggio di planning per un docente, dato l'elenco delle sue lezioni
+   della settimana e un titolo iniziale (diverso tra primo invio e aggiornamento). */
+function costruisciMessaggioPlanning(salutoNome,titolo,lezioni){
+  let testo=`Ciao ${salutoNome}! ${titolo}\n`;
+  GIORNI.forEach(giorno=>{
+    const lezGiorno=lezioni.filter(l=>l.giorno===giorno);
+    if(!lezGiorno.length)return;
+    /* Raggruppo per fascia oraria (stessa oraInizio-oraFine = stessa fascia) */
+    const perFascia={};
+    lezGiorno.forEach(l=>{
+      const chiave=`${l.oraInizio}-${l.oraFine}`;
+      if(!perFascia[chiave])perFascia[chiave]={oraInizio:l.oraInizio,oraFine:l.oraFine,materia:l.materia,studenti:[]};
+      const st=db.studenti.find(x=>x.id===l.studenteId);
+      if(st)perFascia[chiave].studenti.push(st.nome+' '+st.cognome);
+    });
+    const fasce=Object.values(perFascia).sort((a,b)=>oraMin(a.oraInizio)-oraMin(b.oraInizio));
+    testo+=`\n${giorno}\n`;
+    fasce.forEach(f=>{
+      testo+=`${f.oraInizio}–${f.oraFine} ${f.materia} con ${uniscreNomi(f.studenti)}\n`;
+    });
+  });
+  testo+=`\nLogicaMente APS`;
+  return testo;
+}
+
+/* Invia a TUTTI i docenti con lezioni il planning completo della settimana visualizzata (primo invio). */
+function inviaPlanningDocenti(){
+  const wk=fmtDate(currentWeekStart);
+  const assSett=db.assegnazioni.filter(a=>a.settimana===wk);
+  if(!assSett.length){alert('Non ci sono lezioni pianificate per questa settimana. Crea prima le assegnazioni.');return;}
+
+  const perDoc={};
+  assSett.forEach(a=>{
+    if(!perDoc[a.docente])perDoc[a.docente]=[];
+    perDoc[a.docente].push(a);
+  });
+
+  const nomiDocenti=Object.keys(perDoc).filter(n=>n&&n.trim());
+  if(!nomiDocenti.length){alert('Le lezioni di questa settimana non hanno un docente assegnato.');return;}
+
+  const fine=addDays(currentWeekStart,6);
+  const periodo=`${fmtDateIT(currentWeekStart)} – ${fmtDateIT(fine)}`;
+  const senzaNumero=[];
+  let inviati=0;
+
+  if(!confirm(`Sto per aprire WhatsApp per ${nomiDocenti.length} docent${nomiDocenti.length===1?'e':'i'} con lezioni questa settimana (${periodo}).\n\nSi aprirà una scheda WhatsApp per ciascuno, una dopo l'altra. Procedo?`))return;
+
+  nomiDocenti.forEach(nomeDoc=>{
+    const doc=db.docenti.find(x=>(x.nome+' '+x.cognome)===nomeDoc);
+    const num=doc?telPerWhatsApp(doc.telefono):null;
+    if(!num){senzaNumero.push(nomeDoc);return;}
+    const salutoNome=doc?doc.nome:nomeDoc;
+    const testo=costruisciMessaggioPlanning(salutoNome,`Ecco il tuo planning della settimana ${periodo}:`,perDoc[nomeDoc]);
+    window.open(`https://web.whatsapp.com/send?phone=${num}&text=${encodeURIComponent(testo)}`,'whatsappGestionale');
+    inviati++;
+  });
+
+  let msg=`Fatto! Ho aperto WhatsApp per ${inviati} docent${inviati===1?'e':'i'}.`;
+  if(senzaNumero.length)msg+=`\n\nNon ho trovato il numero di telefono per: ${senzaNumero.join(', ')}. Aggiungilo nella scheda del docente.`;
+  setTimeout(()=>alert(msg),400);
+}
+
+/* Invia il planning aggiornato a UN SOLO docente (per correzioni fatte dopo il primo invio). */
+function inviaPlanningSingoloDocente(docId){
+  const doc=db.docenti.find(x=>x.id===docId);
+  if(!doc){alert('Docente non trovato.');return;}
+  const wk=fmtDate(currentWeekStart);
+  const nomeCompleto=doc.nome+' '+doc.cognome;
+  const lezioni=db.assegnazioni.filter(a=>a.settimana===wk&&a.docente===nomeCompleto);
+  if(!lezioni.length){alert(`${doc.nome} ${doc.cognome} non ha lezioni pianificate questa settimana.`);return;}
+  const num=telPerWhatsApp(doc.telefono);
+  if(!num){alert(`Manca il numero di telefono di ${doc.nome} ${doc.cognome}. Aggiungilo nella scheda del docente.`);return;}
+
+  const fine=addDays(currentWeekStart,6);
+  const periodo=`${fmtDateIT(currentWeekStart)} – ${fmtDateIT(fine)}`;
+  if(!confirm(`Inviare l'aggiornamento della pianificazione a ${doc.nome} ${doc.cognome}?`))return;
+
+  const testo=costruisciMessaggioPlanning(doc.nome,`Aggiornamento pianificazione — settimana ${periodo}:`,lezioni);
   window.open(`https://web.whatsapp.com/send?phone=${num}&text=${encodeURIComponent(testo)}`,'whatsappGestionale');
 }
 
