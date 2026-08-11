@@ -662,7 +662,7 @@ function apriWhatsApp(id){
   }
 
   const url=`https://web.whatsapp.com/send?phone=${numeroPulito}&text=${encodeURIComponent(testo)}`;
-  window.open(url,'_blank');
+  window.open(url,'whatsappGestionale');
 }
 
 function generaRicevutaPDF(pagamentoId){
@@ -974,7 +974,7 @@ function apriWhatsAppContatto(id){
     else numero='+'+numero;
   }
   const url=`https://web.whatsapp.com/send?phone=${numero.replace('+','')}`;
-  window.open(url,'_blank');
+  window.open(url,'whatsappGestionale');
 }
 
 function eliminaContatto(id){
@@ -1220,7 +1220,7 @@ function notificaDocenteLezione(docNome,studenteId,dataLez,orario,materia,isRecu
   if(!num)return; /* nessun numero in anagrafica: salto senza disturbare */
   if(!confirm(`Lezione salvata! Vuoi inviare la notifica WhatsApp a ${doc.nome} ${doc.cognome}?`))return;
   const testo=`Ciao ${doc.nome}! Ti confermiamo una ${isRecupero?'lezione di RECUPERO':'nuova lezione'}:\n${fmtDataIT(dataLez)} ore ${orario} — ${materia} con ${s.nome} ${s.cognome}.\nLogicaMente APS`;
-  window.open(`https://web.whatsapp.com/send?phone=${num}&text=${encodeURIComponent(testo)}`,'_blank');
+  window.open(`https://web.whatsapp.com/send?phone=${num}&text=${encodeURIComponent(testo)}`,'whatsappGestionale');
 }
 
 function openModal(tipo,arg){
