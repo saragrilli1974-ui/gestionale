@@ -267,9 +267,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <option>Facebook</option>
         <option>Altro</option>
       </select>
+      <select id="filtro-email-contatti" onchange="renderContatti()">
+        <option value="">Tutti</option>
+        <option value="no-email">Solo telefono (senza email)</option>
+        <option value="con-email">Solo con email</option>
+      </select>
       <button class="btn primary" onclick="openModal('nuovo-contatto')"><i class="ti ti-plus"></i> Nuovo contatto</button>
       <button class="btn" onclick="importaGoogleSheet()"><i class="ti ti-cloud-download"></i> Importa da Google Sheet</button>
       <button class="btn" style="background:#0B996E;color:#fff;border-color:#0B996E" onclick="esportaEmailBrevo()"><i class="ti ti-mail-forward"></i> Esporta email per Brevo</button>
+      <button class="btn" style="background:#25D366;color:#fff;border-color:#25D366" onclick="whatsAppPromoSenzaEmail()"><i class="ti ti-brand-whatsapp"></i> WhatsApp promo (senza email)</button>
     </div>
     <div class="card" style="padding:0 1.25rem"><div id="lista-contatti"></div></div>
   </div>
@@ -914,8 +920,17 @@ function renderContatti(){
   const q=(document.getElementById('search-contatti')||{}).value||'';
   const cat=(document.getElementById('filtro-categoria-contatti')||{}).value||'';
   const fonte=(document.getElementById('filtro-fonte-contatti')||{}).value||'';
+  const filtroEmail=(document.getElementById('filtro-email-contatti')||{}).value||'';
   const lista=document.getElementById('lista-contatti');if(!lista)return;
-  const arr=db.contatti.filter(c=>(c.nome+' '+c.cognome).toLowerCase().includes(q.toLowerCase())&&(!cat||c.categoria===cat)&&(!fonte||c.fonte===fonte));
+  const emailValida=e=>{const s=(e||'').trim();return s.includes('@')&&/\.[a-z]{2,}$/i.test(s);};
+  const arr=db.contatti.filter(c=>{
+    if(!(c.nome+' '+c.cognome).toLowerCase().includes(q.toLowerCase()))return false;
+    if(cat&&c.categoria!==cat)return false;
+    if(fonte&&c.fonte!==fonte)return false;
+    if(filtroEmail==='no-email'&&(emailValida(c.email)||!c.telefono))return false;
+    if(filtroEmail==='con-email'&&!emailValida(c.email))return false;
+    return true;
+  });
   if(!arr.length){lista.innerHTML='<div class="empty">Nessun contatto trovato</div>';return;}
   lista.innerHTML=arr.map(c=>{
     return`<div class="row-item" onclick="apriContattoDettaglio(${c.id})">
@@ -965,18 +980,80 @@ function apriContattoDettaglio(id){
 
 function backToContatti(){document.getElementById('view-contatti-lista').style.display='block';document.getElementById('view-contatto-dettaglio').style.display='none';renderContatti();}
 
-function apriWhatsAppContatto(id){
-  const c=db.contatti.find(x=>x.id===id);if(!c)return;
-  let numero=(c.telefono||'').replace(/[^\d+]/g,'');
-  if(!numero){alert('Nessun numero di telefono per questo contatto.');return;}
+function normalizzaNumero(tel){
+  let numero=(tel||'').replace(/[^\d+]/g,'');
+  if(!numero)return '';
   if(numero.startsWith('00'))numero='+'+numero.slice(2);
   if(!numero.startsWith('+')){
     if(numero.startsWith('39'))numero='+'+numero;
     else if(numero.startsWith('3'))numero='+39'+numero;
     else numero='+'+numero;
   }
+  return numero;
+}
+
+function apriWhatsAppContatto(id){
+  const c=db.contatti.find(x=>x.id===id);if(!c)return;
+  const numero=normalizzaNumero(c.telefono);
+  if(!numero){alert('Nessun numero di telefono per questo contatto.');return;}
   const url=`https://web.whatsapp.com/send?phone=${numero.replace('+','')}`;
   window.open(url,'whatsappGestionale');
+}
+
+function whatsAppPromoSenzaEmail(){
+  const emailValida=e=>{const s=(e||'').trim();return s.includes('@')&&/\.[a-z]{2,}$/i.test(s);};
+  const lista=db.contatti.filter(c=>c.telefono&&!emailValida(c.email));
+  if(!lista.length){alert('Nessun contatto con telefono ma senza email.');return;}
+
+  const msg=`*Si riparte!* 🎒
+
+Le lezioni del DopoScuolaOnline riprendono *lunedì 21 settembre*.
+
+Se ti iscrivi entro il 31 agosto:
+
+🆕 *Nuovo studente?*
+Prova una settimana gratuita e non paghi la quota di iscrizione di 20€.
+
+🔙 *Sei già stato con noi?*
+Per te uno sconto del 15% sulla quota di ottobre!
+
+👉 Iscriviti qui: https://doposcuolaonline.net/doposcuola-gratuito
+
+Per info rispondi a questo messaggio o chiamaci.
+
+Sara — DopoScuolaOnline`;
+
+  /* Setta il filtro "senza email" e mostra il modale con istruzioni */
+  const sel=document.getElementById('filtro-email-contatti');
+  if(sel){sel.value='no-email';renderContatti();}
+
+  const encodedMsg=encodeURIComponent(msg);
+
+  /* Modale con lista contatti e pulsante WhatsApp per ciascuno */
+  let html=`<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)this.remove()">
+    <div style="background:#fff;border-radius:12px;max-width:600px;width:90%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:20px 24px 12px;border-bottom:1px solid #e8e0d8">
+        <h3 style="margin:0;font-size:18px">WhatsApp promo — ${lista.length} contatti senza email</h3>
+        <p style="margin:6px 0 0;font-size:13px;color:#6b6a65">Clicca il pulsante verde per inviare il messaggio pre-compilato a ciascun contatto. WhatsApp si aprirà con il testo già pronto — devi solo premere Invio.</p>
+      </div>
+      <div style="overflow-y:auto;padding:12px 24px">`;
+  lista.forEach(c=>{
+    const num=normalizzaNumero(c.telefono);
+    const waUrl=`https://web.whatsapp.com/send?phone=${num.replace('+','')}&text=${encodedMsg}`;
+    html+=`<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #f0ede8">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:500">${c.nome} ${c.cognome}</div>
+        <div style="font-size:12px;color:#9b9a94">${c.telefono||''}</div>
+      </div>
+      <a href="${waUrl}" target="whatsappGestionale" class="btn sm" style="background:#25D366;color:#fff;border-color:#25D366;text-decoration:none"><i class="ti ti-brand-whatsapp"></i> Invia</a>
+    </div>`;
+  });
+  html+=`</div>
+      <div style="padding:12px 24px;border-top:1px solid #e8e0d8;text-align:right">
+        <button class="btn" onclick="this.closest('[style*=fixed]').remove()">Chiudi</button>
+      </div>
+    </div></div>`;
+  document.body.insertAdjacentHTML('beforeend',html);
 }
 
 function eliminaContatto(id){
