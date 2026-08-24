@@ -144,17 +144,29 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 <div id="tab-studenti">
   <div id="view-lista">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <div class="tabs" id="tabs-studenti" style="margin:0">
+        <button class="tab active" onclick="switchStudTab('iscritti')">Iscritti</button>
+        <button class="tab" onclick="switchStudTab('prova')">In prova</button>
+        <button class="tab" onclick="switchStudTab('tutti')">Tutti</button>
+      </div>
+      <div style="flex:1"></div>
+      <button class="btn primary" onclick="openModal('nuovo-studente')"><i class="ti ti-plus"></i> Nuovo studente</button>
+    </div>
     <div class="search-wrap">
       <input type="text" id="search-input" placeholder="Cerca per nome o cognome..." oninput="renderLista()">
       <select id="filtro-stato-stud" onchange="renderLista()">
-        <option value="">Tutti</option><option value="1">Attivi</option><option value="0">Inattivi</option>
+        <option value="">Tutti gli stati</option><option value="1">Attivi</option><option value="0">Inattivi</option>
       </select>
-      <button class="btn primary" onclick="openModal('nuovo-studente')"><i class="ti ti-plus"></i> Nuovo studente</button>
     </div>
-    <div class="grid3" style="margin-bottom:1.25rem">
-      <div class="metric-card"><div class="metric-label">Studenti totali</div><div class="metric-value" id="m-totale">0</div></div>
+    <div class="grid3" style="margin-bottom:1.25rem" id="metrics-iscritti">
+      <div class="metric-card"><div class="metric-label">Iscritti</div><div class="metric-value" id="m-totale">0</div></div>
       <div class="metric-card"><div class="metric-label">Attivi</div><div class="metric-value" id="m-attivi">0</div></div>
       <div class="metric-card"><div class="metric-label">Entrate mensili stimate</div><div class="metric-value" id="m-entrate">€0</div></div>
+    </div>
+    <div class="grid2" style="margin-bottom:1.25rem;display:none" id="metrics-prova">
+      <div class="metric-card"><div class="metric-label">In prova</div><div class="metric-value" id="m-prova">0</div></div>
+      <div class="metric-card"><div class="metric-label">In attesa di conferma</div><div class="metric-value" id="m-prova-attivi">0</div></div>
     </div>
     <div class="card" style="padding:0 1.25rem"><div id="lista-studenti"></div></div>
   </div>
@@ -565,21 +577,37 @@ function initMesi(){
 function initials(n,c){return((n||'')[0]||'').toUpperCase()+((c||'')[0]||'').toUpperCase();}
 function avColor(id){return'av-'+(id%5);}
 
+let currentStudTab='iscritti';
+function switchStudTab(tab){
+  currentStudTab=tab;
+  document.querySelectorAll('#tabs-studenti .tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('#tabs-studenti .tab').forEach(t=>{if((tab==='iscritti'&&t.textContent==='Iscritti')||(tab==='prova'&&t.textContent==='In prova')||(tab==='tutti'&&t.textContent==='Tutti'))t.classList.add('active');});
+  document.getElementById('metrics-iscritti').style.display=(tab==='prova')?'none':'grid';
+  document.getElementById('metrics-prova').style.display=(tab==='prova')?'grid':'none';
+  renderLista();
+}
+
 function updateMetrics(){
-  const att=db.studenti.filter(s=>s.attivo!==false);
-  document.getElementById('m-totale').textContent=db.studenti.length;
+  const iscritti=db.studenti.filter(s=>s.tipo!=='prova');
+  const att=iscritti.filter(s=>s.attivo!==false);
+  document.getElementById('m-totale').textContent=iscritti.length;
   document.getElementById('m-attivi').textContent=att.length;
   const ent=att.reduce((a,s)=>{const p=PIANI.find(x=>x.id===s.piano);return a+(p&&p.prezzo>0?p.prezzo:0);},0);
   document.getElementById('m-entrate').textContent='€'+ent;
+  const prova=db.studenti.filter(s=>s.tipo==='prova');
+  document.getElementById('m-prova').textContent=prova.length;
+  document.getElementById('m-prova-attivi').textContent=prova.filter(s=>s.attivo!==false).length;
 }
 
 function renderLista(){
   const q=(document.getElementById('search-input')||{}).value||'';
   const fs=(document.getElementById('filtro-stato-stud')||{}).value||'';
   const lista=document.getElementById('lista-studenti');if(!lista)return;
-  const arr=db.studenti.filter(s=>(s.nome+' '+s.cognome).toLowerCase().includes(q.toLowerCase())&&(fs===''||String(s.attivo!==false?1:0)===fs));
+  let arr=db.studenti.filter(s=>(s.nome+' '+s.cognome).toLowerCase().includes(q.toLowerCase())&&(fs===''||String(s.attivo!==false?1:0)===fs));
+  if(currentStudTab==='prova')arr=arr.filter(s=>s.tipo==='prova');
+  else if(currentStudTab==='iscritti')arr=arr.filter(s=>s.tipo!=='prova');
   if(!arr.length){lista.innerHTML='<div class="empty">Nessuno studente trovato</div>';updateMetrics();return;}
-  lista.innerHTML=arr.map(s=>{const p=PIANI.find(x=>x.id===s.piano);const stato=s.attivo===false?'<span class="badge gray">Inattivo</span>':'<span class="badge green">Attivo</span>';return`<div class="row-item" onclick="apriDettaglio(${s.id})"><div class="avatar ${avColor(s.id)}">${initials(s.nome,s.cognome)}</div><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:500">${s.nome} ${s.cognome}</div><div style="font-size:12px;color:#9b9a94">${p?p.label:'—'}</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0">${stato}<i class="ti ti-chevron-right" style="color:#9b9a94;font-size:16px"></i></div></div>`;}).join('');
+  lista.innerHTML=arr.map(s=>{const p=PIANI.find(x=>x.id===s.piano);const isProva=s.tipo==='prova';const stato=isProva?'<span class="badge purple">In prova</span>':(s.attivo===false?'<span class="badge gray">Inattivo</span>':'<span class="badge green">Attivo</span>');return`<div class="row-item" onclick="apriDettaglio(${s.id})"><div class="avatar ${avColor(s.id)}">${initials(s.nome,s.cognome)}</div><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:500">${s.nome} ${s.cognome}</div><div style="font-size:12px;color:#9b9a94">${p?p.label:'—'}</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0">${stato}<i class="ti ti-chevron-right" style="color:#9b9a94;font-size:16px"></i></div></div>`;}).join('');
   updateMetrics();
 }
 
@@ -596,8 +624,8 @@ function apriDettaglio(id){
   document.getElementById('dettaglio-content').innerHTML=`
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:1.5rem;flex-wrap:wrap">
       <div class="avatar ${avColor(s.id)}" style="width:48px;height:48px;font-size:16px">${initials(s.nome,s.cognome)}</div>
-      <div style="flex:1"><div style="font-size:20px;font-weight:600">${s.nome} ${s.cognome}</div><div style="font-size:13px;color:#9b9a94">${p?p.label:'—'} · ${s.attivo===false?'<span class="badge gray">Inattivo</span>':'<span class="badge green">Attivo</span>'}</div></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn success" onclick="generaPlanningPDF(${s.id})"><i class="ti ti-file-download"></i> Planning PDF</button><button class="btn" style="background:#25D366;color:#fff;border-color:#25D366" onclick="apriWhatsApp(${s.id})"><i class="ti ti-brand-whatsapp"></i> WhatsApp</button><button class="btn" onclick="openModal('modifica-studente',${s.id})"><i class="ti ti-edit"></i> Modifica</button><button class="btn danger" onclick="eliminaStudente(${s.id})"><i class="ti ti-trash"></i></button></div>
+      <div style="flex:1"><div style="font-size:20px;font-weight:600">${s.nome} ${s.cognome}</div><div style="font-size:13px;color:#9b9a94">${p?p.label:'—'} · ${s.tipo==='prova'?'<span class="badge purple">In prova</span>':(s.attivo===false?'<span class="badge gray">Inattivo</span>':'<span class="badge green">Iscritto</span>')}</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${s.tipo==='prova'?`<button class="btn" style="background:#7c3aed;color:#fff;border-color:#7c3aed" onclick="confermaIscrizione(${s.id})"><i class="ti ti-user-check"></i> Conferma iscrizione</button>`:''}<button class="btn success" onclick="generaPlanningPDF(${s.id})"><i class="ti ti-file-download"></i> Planning PDF</button><button class="btn" style="background:#25D366;color:#fff;border-color:#25D366" onclick="apriWhatsApp(${s.id})"><i class="ti ti-brand-whatsapp"></i> WhatsApp</button><button class="btn" onclick="openModal('modifica-studente',${s.id})"><i class="ti ti-edit"></i> Modifica</button><button class="btn danger" onclick="eliminaStudente(${s.id})"><i class="ti ti-trash"></i></button></div>
     </div>
     <div class="grid3" style="margin-bottom:1.25rem">
       <div class="metric-card"><div class="metric-label">Ore totali tenute</div><div class="metric-value">${totOre}h</div></div>
@@ -1417,8 +1445,9 @@ function openModal(tipo,arg){
         <div class="field"><label>Telefono tutore</label><input id="f-ttel" value="${s?s.tutoreTel||'':''}" placeholder="+39..."></div>
         <div class="field" style="grid-column:1/-1"><label>Indirizzo tutore</label><input id="f-tindirizzo" value="${s?s.tutoreIndirizzo||'':''}" placeholder="Via, città, CAP"></div>
       </div>
-      <div class="section-title">Piano e stato</div>
+      <div class="section-title">Tipo, piano e stato</div>
       <div class="grid2">
+        <div class="field"><label>Tipo</label><select id="f-tipo"><option value="prova"${(s&&s.tipo==='prova')||(!s&&currentStudTab==='prova')?' selected':''}>In prova (settimana gratuita)</option><option value="iscritto"${s?s.tipo!=='prova'?' selected':'':currentStudTab!=='prova'?' selected':''}>Iscritto</option></select></div>
         <div class="field"><label>Piano</label><select id="f-piano">${pianiOpt(s?s.piano:'5g')}</select></div>
         <div class="field"><label>Stato</label><select id="f-attivo"><option value="1"${!s||s.attivo!==false?' selected':''}>Attivo</option><option value="0"${s&&s.attivo===false?' selected':''}>Inattivo</option></select></div>
       </div>
@@ -1596,7 +1625,7 @@ function salvaStudente(id){
   const nome=document.getElementById('f-nome').value.trim();
   const cognome=document.getElementById('f-cognome').value.trim();
   if(!nome||!cognome){alert('Nome e cognome sono obbligatori');return;}
-  const data={nome,cognome,email:document.getElementById('f-email').value.trim(),telefono:document.getElementById('f-tel').value.trim(),dataNascita:document.getElementById('f-nascita').value,cf:document.getElementById('f-cf').value.trim().toUpperCase(),indirizzo:document.getElementById('f-indirizzo').value.trim(),dataIscrizione:document.getElementById('f-iscrizione').value,tutoreNome:document.getElementById('f-tnome').value.trim(),tutoreCf:document.getElementById('f-tcf').value.trim().toUpperCase(),tutoreEmail:document.getElementById('f-temail').value.trim(),tutoreTel:document.getElementById('f-ttel').value.trim(),tutoreIndirizzo:document.getElementById('f-tindirizzo').value.trim(),piano:document.getElementById('f-piano').value,attivo:document.getElementById('f-attivo').value==='1',note:document.getElementById('f-note').value.trim()};
+  const data={nome,cognome,email:document.getElementById('f-email').value.trim(),telefono:document.getElementById('f-tel').value.trim(),dataNascita:document.getElementById('f-nascita').value,cf:document.getElementById('f-cf').value.trim().toUpperCase(),indirizzo:document.getElementById('f-indirizzo').value.trim(),dataIscrizione:document.getElementById('f-iscrizione').value,tutoreNome:document.getElementById('f-tnome').value.trim(),tutoreCf:document.getElementById('f-tcf').value.trim().toUpperCase(),tutoreEmail:document.getElementById('f-temail').value.trim(),tutoreTel:document.getElementById('f-ttel').value.trim(),tutoreIndirizzo:document.getElementById('f-tindirizzo').value.trim(),tipo:document.getElementById('f-tipo').value,piano:document.getElementById('f-piano').value,attivo:document.getElementById('f-attivo').value==='1',note:document.getElementById('f-note').value.trim()};
   if(id!==null&&id!==undefined&&!isNaN(id)){const i=db.studenti.findIndex(s=>s.id===id);if(i>=0)db.studenti[i]={...db.studenti[i],...data};saveDb();closeModal();renderAll();apriDettaglio(id);}
   else{data.id=db.nextId++;db.studenti.push(data);saveDb();closeModal();renderAll();}
 }
@@ -1729,6 +1758,11 @@ function eliminaStudente(id){
   db.lezioni=db.lezioni.filter(l=>l.studenteId!==id);
   db.assegnazioni=db.assegnazioni.filter(a=>a.studenteId!==id);
   saveDb();backToLista();
+}
+function confermaIscrizione(id){
+  if(!confirm('Confermare l\'iscrizione di questo studente? Verrà spostato dalla lista "In prova" alla lista "Iscritti".'))return;
+  const i=db.studenti.findIndex(s=>s.id===id);
+  if(i>=0){db.studenti[i].tipo='iscritto';db.studenti[i].dataIscrizione=db.studenti[i].dataIscrizione||new Date().toISOString().slice(0,10);saveDb();apriDettaglio(id);}
 }
 function eliminaDocente(id){if(!confirm('Eliminare questo docente?'))return;db.docenti=db.docenti.filter(d=>d.id!==id);saveDb();backToDocenti();}
 function eliminaPagamento(id,stId){if(!confirm('Eliminare questo pagamento?'))return;db.pagamenti=db.pagamenti.filter(p=>p.id!==id);saveDb();if(stId)apriDettaglio(stId);else renderPagamenti();}
