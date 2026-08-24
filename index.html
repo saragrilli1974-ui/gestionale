@@ -259,12 +259,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <option value="">Tutti</option><option value="Pagato">Pagati</option><option value="In attesa">In attesa</option>
     </select>
     <button class="btn primary" onclick="openModal('nuovo-pagamento')"><i class="ti ti-plus"></i> Registra pagamento</button>
+    <button class="btn" style="background:#2d96a5;color:#fff;border-color:#2d96a5" onclick="apriGenerazioneMassiva()"><i class="ti ti-receipt-2"></i> Genera pagamenti mese</button>
+    <button class="btn" style="background:#25D366;color:#fff;border-color:#25D366" onclick="sollecitiWhatsApp()"><i class="ti ti-brand-whatsapp"></i> Solleciti</button>
   </div>
   <div class="grid3" style="margin-bottom:1.25rem">
     <div class="metric-card"><div class="metric-label">Incassato</div><div class="metric-value" id="p-incassato">€0</div></div>
     <div class="metric-card"><div class="metric-label">Da incassare</div><div class="metric-value" id="p-da-incassare">€0</div></div>
     <div class="metric-card"><div class="metric-label">Studenti paganti</div><div class="metric-value" id="p-paganti">0</div></div>
   </div>
+  <div id="dashboard-pagamenti" style="display:none;margin-bottom:1rem"></div>
   <div class="card" style="padding:0 1.25rem"><div id="lista-pagamenti"></div></div>
 </div>
 
@@ -651,7 +654,7 @@ function apriDettaglio(id){
     </div>
     <div class="grid3" style="margin-bottom:1.25rem">
       <div class="metric-card"><div class="metric-label">Ore totali tenute</div><div class="metric-value">${totOre}h</div></div>
-      <div class="metric-card"><div class="metric-label">Canone mensile</div><div class="metric-value">${s.tipo==='prova'?'Gratuito':(p&&p.prezzo>0?'€'+p.prezzo:'a lezione')}</div></div>
+      <div class="metric-card"><div class="metric-label">Canone mensile</div><div class="metric-value">${s.tipo==='prova'?'Gratuito':(p&&p.prezzo>0?'€'+p.prezzo:(s.tariffaOraria?'€'+s.tariffaOraria+'/h':'€18/h'))}</div>${s.sconti&&s.sconti.length?'<div style="font-size:11px;color:#7c3aed;margin-top:2px">'+s.sconti.map(sc=>sc.descrizione+' -'+sc.percentuale+'%'+(sc.meseApplicazione?' ('+sc.meseApplicazione+')':'')).join(', ')+'</div>':''}${s.quotaIscrizione==='pending'?'<div style="font-size:11px;color:#e67e22;margin-top:2px">+€20 iscrizione da addebitare</div>':''}</div>
       <div class="metric-card"><div class="metric-label">Lezioni totali</div><div class="metric-value">${lezioni.length}</div></div>
     </div>
     <div class="card">
@@ -1176,8 +1179,27 @@ function renderPagamenti(){
   document.getElementById('p-incassato').textContent='€'+inc;
   document.getElementById('p-da-incassare').textContent='€'+da;
   document.getElementById('p-paganti').textContent=new Set(arr.filter(p=>p.stato==='Pagato').map(p=>p.studenteId)).size;
+  // Dashboard riepilogo per studente
+  const dash=document.getElementById('dashboard-pagamenti');
+  if(dash&&mese){
+    const attivi=db.studenti.filter(s=>s.tipo!=='prova'&&s.attivo!==false);
+    const pagMese=db.pagamenti.filter(p=>p.mese===mese);
+    const conPag=new Set(pagMese.map(p=>p.studenteId));
+    const pagati=pagMese.filter(p=>p.stato==='Pagato').length;
+    const inAttesa=pagMese.filter(p=>p.stato!=='Pagato').length;
+    const senzaPag=attivi.filter(s=>!conPag.has(s.id)).length;
+    const perc=attivi.length?Math.round(pagati/attivi.length*100):0;
+    dash.style.display='block';
+    dash.innerHTML='<div class="card" style="padding:12px 16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-weight:600;font-size:14px">Riepilogo '+labelMese(mese)+'</span><span style="font-size:12px;color:#9b9a94">'+attivi.length+' studenti attivi</span></div>'+
+      '<div style="display:flex;gap:8px;margin-bottom:8px">'+
+      '<div style="flex:1;text-align:center;padding:8px;background:#e8f5e9;border-radius:6px"><div style="font-size:18px;font-weight:700;color:#2e7d32">'+pagati+'</div><div style="font-size:11px;color:#4caf50">Pagati</div></div>'+
+      '<div style="flex:1;text-align:center;padding:8px;background:#fff3e0;border-radius:6px"><div style="font-size:18px;font-weight:700;color:#e65100">'+inAttesa+'</div><div style="font-size:11px;color:#ff9800">In attesa</div></div>'+
+      '<div style="flex:1;text-align:center;padding:8px;background:#fce4ec;border-radius:6px"><div style="font-size:18px;font-weight:700;color:#c62828">'+senzaPag+'</div><div style="font-size:11px;color:#e53935">Senza pagamento</div></div>'+
+      '<div style="flex:1;text-align:center;padding:8px;background:#e3f2fd;border-radius:6px"><div style="font-size:18px;font-weight:700;color:#1565c0">'+perc+'%</div><div style="font-size:11px;color:#42a5f5">Incasso</div></div></div>'+
+      '<div style="height:6px;background:#eee;border-radius:3px;overflow:hidden"><div style="height:100%;width:'+perc+'%;background:linear-gradient(90deg,#2e7d32,#4caf50);border-radius:3px;transition:width .3s"></div></div></div>';
+  } else if(dash){dash.style.display='none';}
   if(!arr.length){lista.innerHTML='<div class="empty">Nessun pagamento trovato</div>';return;}
-  lista.innerHTML=arr.map(p=>{const s=db.studenti.find(x=>x.id===p.studenteId);return`<div class="pag-row"><div class="avatar ${avColor(p.studenteId)}" style="width:28px;height:28px;font-size:11px;flex-shrink:0">${s?initials(s.nome,s.cognome):'?'}</div><span style="flex:1">${s?s.nome+' '+s.cognome:'Rimosso'}</span><span style="color:#9b9a94;font-size:12px">${p.mese}</span><span style="color:#9b9a94;font-size:12px">${p.metodo}</span><span style="font-weight:600">€${p.importo}</span><span class="badge ${p.stato==='Pagato'?'green':'red'}">${p.stato}</span><button class="btn sm" onclick="generaRicevutaPDF(${p.id})"><i class="ti ti-receipt"></i></button><button class="btn danger sm" onclick="eliminaPagamento(${p.id},null)"><i class="ti ti-trash"></i></button></div>`;}).join('');
+  lista.innerHTML=arr.map(p=>{const s=db.studenti.find(x=>x.id===p.studenteId);return`<div class="pag-row"><div class="avatar ${avColor(p.studenteId)}" style="width:28px;height:28px;font-size:11px;flex-shrink:0">${s?initials(s.nome,s.cognome):'?'}</div><span style="flex:1">${s?s.nome+' '+s.cognome:'Rimosso'}</span><span style="color:#9b9a94;font-size:12px">${p.mese}</span><span style="color:#9b9a94;font-size:12px">${p.metodo}</span><span style="font-weight:600">€${p.importo}</span><span class="badge ${p.stato==='Pagato'?'green':'red'}" style="cursor:pointer" title="Clicca per cambiare stato" onclick="event.stopPropagation();toggleStatoPagamento(${p.id})">${p.stato}</span><button class="btn sm" onclick="generaRicevutaPDF(${p.id})"><i class="ti ti-receipt"></i></button><button class="btn danger sm" onclick="eliminaPagamento(${p.id},null)"><i class="ti ti-trash"></i></button></div>`;}).join('');
 }
 
 function renderLezioni(){
@@ -1447,6 +1469,7 @@ function openModal(tipo,arg){
   const mc=document.getElementById('modal-container');let html='';
   if(tipo==='nuovo-studente'||tipo==='modifica-studente'){
     const s=tipo==='modifica-studente'?db.studenti.find(x=>x.id===arg):null;
+    initScontiTemp(s);
     html=`<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal"><h2>${s?'Modifica studente':'Nuovo studente'}</h2>
       <div class="section-title" style="margin-top:0">Dati personali</div>
       <div class="grid2">
@@ -1470,9 +1493,19 @@ function openModal(tipo,arg){
       <div class="section-title">Livello, tipo, piano e stato</div>
       <div class="grid2">
         <div class="field"><label>Livello scolastico *</label><select id="f-livello"><option value="superiori"${!s||s.livello==='superiori'||!s.livello?' selected':''}>Superiori</option><option value="medie"${s&&s.livello==='medie'?' selected':''}>Medie</option><option value="elementari"${s&&s.livello==='elementari'?' selected':''}>Elementari</option></select></div>
-        <div class="field"><label>Tipo</label><select id="f-tipo" onchange="document.getElementById('wrap-piano').style.display=this.value==='prova'?'none':'block'"><option value="prova"${(s&&s.tipo==='prova')||(!s&&currentStudTab==='prova')?' selected':''}>In prova (settimana gratuita)</option><option value="iscritto"${s?s.tipo!=='prova'?' selected':'':currentStudTab!=='prova'?' selected':''}>Iscritto</option></select></div>
-        <div class="field" id="wrap-piano" style="${(s&&s.tipo==='prova')||(!s&&currentStudTab==='prova')?'display:none':''}"><label>Piano</label><select id="f-piano">${pianiOpt(s?s.piano:'5g')}</select></div>
+        <div class="field"><label>Tipo</label><select id="f-tipo" onchange="document.getElementById('wrap-piano').style.display=this.value==='prova'?'none':'block';if(this.value==='prova')document.getElementById('wrap-tariffa').style.display='none'"><option value="prova"${(s&&s.tipo==='prova')||(!s&&currentStudTab==='prova')?' selected':''}>In prova (settimana gratuita)</option><option value="iscritto"${s?s.tipo!=='prova'?' selected':'':currentStudTab!=='prova'?' selected':''}>Iscritto</option></select></div>
+        <div class="field" id="wrap-piano" style="${(s&&s.tipo==='prova')||(!s&&currentStudTab==='prova')?'display:none':''}"><label>Piano</label><select id="f-piano" onchange="document.getElementById('wrap-tariffa').style.display=this.value==='ind'?'':'none'">${pianiOpt(s?s.piano:'5g')}</select></div>
         <div class="field"><label>Stato</label><select id="f-attivo"><option value="1"${!s||s.attivo!==false?' selected':''}>Attivo</option><option value="0"${s&&s.attivo===false?' selected':''}>Inattivo</option></select></div>
+        <div class="field" id="wrap-tariffa" style="${s&&s.piano==='ind'?'':'display:none'}"><label>Tariffa oraria (€)</label><input id="f-tariffa" type="number" step="0.5" min="0" value="${s?s.tariffaOraria||18:18}" placeholder="18"></div>
+      </div>
+      <div class="section-title">Fatturazione</div>
+      <div class="grid2">
+        <div class="field"><label>Quota iscrizione (€20)</label><select id="f-quota-iscrizione"><option value=""${!s||!s.quotaIscrizione?' selected':''}>Non addebitata</option><option value="pending"${s&&s.quotaIscrizione==='pending'?' selected':''}>Da addebitare</option><option value="paid"${s&&s.quotaIscrizione==='paid'?' selected':''}>Già pagata</option></select></div>
+        <div class="field"><label>&nbsp;</label><div style="font-size:12px;color:#9b9a94;margin-top:4px">Se "Da addebitare", verrà aggiunta alla prossima generazione massiva</div></div>
+      </div>
+      <div id="wrap-sconti" style="margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span style="font-size:12px;font-weight:600;color:#9b9a94;text-transform:uppercase;letter-spacing:.06em">Sconti attivi</span><button class="btn sm" type="button" onclick="aggiungiScontoForm()"><i class="ti ti-plus"></i> Aggiungi sconto</button></div>
+        <div id="lista-sconti-form">${s&&s.sconti&&s.sconti.length?s.sconti.map((sc,i)=>'<div class=\"sconto-row\" style=\"display:flex;align-items:center;gap:8px;padding:6px 8px;background:#fafaf8;border-radius:6px;margin-bottom:4px;font-size:13px\"><span style=\"flex:1\">'+sc.descrizione+' — <strong>'+sc.percentuale+'%</strong> su '+sc.meseApplicazione+'</span><button class=\"btn danger sm\" type=\"button\" onclick=\"rimuoviScontoForm('+i+')\"><i class=\"ti ti-x\"></i></button></div>').join(''):'<div class="empty" style="font-size:12px;padding:8px">Nessuno sconto attivo</div>'}</div>
       </div>
       <div class="field"><label>Note</label><textarea id="f-note" placeholder="Preferenze docente, note...">${s?s.note||'':''}</textarea></div>
       <div class="modal-footer"><button class="btn" onclick="closeModal()">Annulla</button><button class="btn primary" onclick="salvaStudente(${s?s.id:'null'})">${s?'Salva modifiche':'Aggiungi'}</button></div>
@@ -1691,13 +1724,163 @@ function aggiornaOrarioAss(){
   sel.innerHTML=opts;
 }
 
+/* ===== FATTURAZIONE — Generazione massiva ===== */
+function meseCorrente(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+function labelMese(m){const [a,mm]=m.split('-');const nomi=['','Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];return (nomi[Number(mm)]||mm)+' '+a;}
+
+function calcolaImportoStudente(s,mese){
+  const p=PIANI.find(x=>x.id===s.piano);
+  let importo=0;
+  if(p&&p.prezzo>0){
+    importo=p.prezzo;
+  } else if(s.piano==='ind'){
+    const tariffa=s.tariffaOraria||18;
+    const lezMese=db.lezioni.filter(l=>l.studenteId===s.id&&l.data.startsWith(mese));
+    const ore=lezMese.reduce((a,l)=>a+(Number(l.durata)||1),0);
+    importo=tariffa*ore;
+  }
+  // Applica sconti
+  if(s.sconti&&s.sconti.length){
+    s.sconti.forEach(sc=>{
+      if(!sc.meseApplicazione||sc.meseApplicazione===mese){
+        importo=importo*(1-sc.percentuale/100);
+      }
+    });
+  }
+  importo=Math.round(importo*100)/100;
+  // Quota iscrizione
+  let quotaIscr=0;
+  if(s.quotaIscrizione==='pending')quotaIscr=20;
+  return {importo,quotaIscr,totale:importo+quotaIscr};
+}
+
+function apriGenerazioneMassiva(){
+  const mese=document.getElementById('filtro-mese').value||meseCorrente();
+  const attivi=db.studenti.filter(s=>s.tipo!=='prova'&&s.attivo!==false);
+  const giàGenerati=db.pagamenti.filter(p=>p.mese===mese).map(p=>p.studenteId);
+  const daGenerare=attivi.filter(s=>!giàGenerati.includes(s.id));
+  if(!daGenerare.length){alert('Tutti gli studenti attivi hanno già un pagamento per '+labelMese(mese));return;}
+  let righe=daGenerare.map(s=>{
+    const calc=calcolaImportoStudente(s,mese);
+    const p=PIANI.find(x=>x.id===s.piano);
+    let dettaglio=p&&p.prezzo>0?p.label:'Individuale ('+((s.tariffaOraria||18))+'€/h)';
+    if(calc.quotaIscr)dettaglio+=' + €20 iscrizione';
+    const scontiLabel=s.sconti&&s.sconti.filter(sc=>!sc.meseApplicazione||sc.meseApplicazione===mese).map(sc=>'-'+sc.percentuale+'% '+sc.descrizione).join(', ');
+    return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee;font-size:13px">'+
+      '<input type="checkbox" checked data-sid="'+s.id+'" class="gen-check">'+
+      '<span style="flex:1;font-weight:500">'+s.nome+' '+s.cognome+'</span>'+
+      '<span style="color:#9b9a94;font-size:12px">'+dettaglio+(scontiLabel?' · '+scontiLabel:'')+'</span>'+
+      '<span style="font-weight:600;min-width:60px;text-align:right">€'+calc.totale.toFixed(2)+'</span></div>';
+  }).join('');
+  const totale=daGenerare.reduce((a,s)=>a+calcolaImportoStudente(s,mese).totale,0);
+  const mc=document.getElementById('modal-container');
+  mc.innerHTML=`<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal" style="max-width:600px"><h2>Genera pagamenti — ${labelMese(mese)}</h2>
+    <p style="font-size:13px;color:#6b6a65;margin-bottom:12px">${daGenerare.length} studenti senza pagamento per questo mese. Deseleziona chi non deve ricevere la fattura.</p>
+    <div style="max-height:350px;overflow:auto">${righe}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:2px solid #2d96a5">
+      <span style="font-weight:600;font-size:15px">Totale: €${totale.toFixed(2)}</span>
+      <span style="font-size:12px;color:#9b9a94">${daGenerare.length} pagamenti</span>
+    </div>
+    <div class="modal-footer"><button class="btn" onclick="closeModal()">Annulla</button><button class="btn primary" onclick="eseguiGenerazioneMassiva('${mese}')"><i class="ti ti-receipt-2"></i> Genera ${daGenerare.length} pagamenti</button></div>
+  </div></div>`;
+}
+
+function eseguiGenerazioneMassiva(mese){
+  const checks=[...document.querySelectorAll('.gen-check:checked')];
+  let count=0;
+  checks.forEach(cb=>{
+    const sid=Number(cb.dataset.sid);
+    const s=db.studenti.find(x=>x.id===sid);if(!s)return;
+    const calc=calcolaImportoStudente(s,mese);
+    db.pagamenti.push({id:db.nextId++,studenteId:sid,mese:mese,importo:calc.totale,metodo:'',stato:'In attesa',note:calc.quotaIscr?'Inclusa quota iscrizione €20':''});
+    // Segna quota iscrizione come addebitata
+    if(calc.quotaIscr&&s.quotaIscrizione==='pending'){s.quotaIscrizione='billed';}
+    // Rimuovi sconti one-shot applicati
+    if(s.sconti){s.sconti=s.sconti.filter(sc=>sc.meseApplicazione&&sc.meseApplicazione!==mese);}
+    count++;
+  });
+  saveDb();closeModal();renderAll();
+  alert(count+' pagamenti generati per '+labelMese(mese));
+}
+
+/* ===== FATTURAZIONE — Solleciti WhatsApp ===== */
+function sollecitiWhatsApp(){
+  const mese=document.getElementById('filtro-mese').value||meseCorrente();
+  const daPayare=db.pagamenti.filter(p=>p.mese===mese&&p.stato!=='Pagato');
+  if(!daPayare.length){alert('Nessun pagamento in attesa per '+labelMese(mese));return;}
+  const righe=daPayare.map(p=>{
+    const s=db.studenti.find(x=>x.id===p.studenteId);if(!s)return null;
+    const tel=s.tutoreTel||s.telefono||'';
+    const nome=s.tutoreNome||(s.nome+' '+s.cognome);
+    return {s,p,tel,nome};
+  }).filter(Boolean).filter(r=>r.tel);
+  if(!righe.length){alert('Nessun numero di telefono disponibile per i solleciti');return;}
+  const lista=righe.map(r=>'<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee;font-size:13px">'+
+    '<input type="checkbox" checked class="soll-check" data-pid="'+r.p.id+'">'+
+    '<span style="flex:1">'+r.nome+' ('+r.s.nome+' '+r.s.cognome+')</span>'+
+    '<span style="color:#9b9a94;font-size:12px">'+r.tel+'</span>'+
+    '<span style="font-weight:600">€'+r.p.importo+'</span></div>').join('');
+  const mc=document.getElementById('modal-container');
+  mc.innerHTML=`<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal" style="max-width:600px"><h2><i class="ti ti-brand-whatsapp" style="color:#25D366"></i> Solleciti pagamento — ${labelMese(mese)}</h2>
+    <p style="font-size:13px;color:#6b6a65;margin-bottom:8px">${righe.length} pagamenti in attesa con numero di telefono disponibile.</p>
+    <div class="field"><label>Messaggio</label><textarea id="soll-msg" rows="4" style="font-size:13px">Gentile {NOME},\nle ricordiamo che la retta di {MESE} per il doposcuola di {STUDENTE} (€{IMPORTO}) risulta ancora in attesa.\n\nPer qualsiasi informazione non esiti a contattarci.\nSara — DopoScuolaOnline</textarea></div>
+    <div style="max-height:250px;overflow:auto">${lista}</div>
+    <div class="modal-footer"><button class="btn" onclick="closeModal()">Annulla</button><button class="btn" style="background:#25D366;color:#fff;border-color:#25D366" onclick="inviasollecitiSequenza('${mese}')"><i class="ti ti-brand-whatsapp"></i> Invia ${righe.length} solleciti</button></div>
+  </div></div>`;
+}
+
+function inviasollecitiSequenza(mese){
+  const checks=[...document.querySelectorAll('.soll-check:checked')];
+  const template=document.getElementById('soll-msg').value;
+  let count=0;
+  checks.forEach((cb,i)=>{
+    const pid=Number(cb.dataset.pid);
+    const p=db.pagamenti.find(x=>x.id===pid);if(!p)return;
+    const s=db.studenti.find(x=>x.id===p.studenteId);if(!s)return;
+    const tel=(s.tutoreTel||s.telefono||'').replace(/[^0-9+]/g,'');if(!tel)return;
+    const nome=s.tutoreNome||(s.nome+' '+s.cognome);
+    const msg=template.replace(/{NOME}/g,nome).replace(/{MESE}/g,labelMese(mese)).replace(/{STUDENTE}/g,s.nome+' '+s.cognome).replace(/{IMPORTO}/g,p.importo);
+    const telClean=tel.startsWith('+')?tel:(tel.startsWith('39')?'+'+tel:'+39'+tel);
+    setTimeout(()=>{
+      window.open('https://web.whatsapp.com/send?phone='+encodeURIComponent(telClean)+'&text='+encodeURIComponent(msg),'whatsappGestionale');
+    },i*1500);
+    count++;
+  });
+  closeModal();
+  if(count)alert(count+' schede WhatsApp aperte. Conferma l\'invio in ogni scheda.');
+}
+
+function toggleStatoPagamento(id){const p=db.pagamenti.find(x=>x.id===id);if(!p)return;p.stato=p.stato==='Pagato'?'In attesa':'Pagato';if(p.stato==='Pagato'&&!p.metodo){p.metodo=prompt('Metodo di pagamento?','Bonifico')||'';}saveDb();renderPagamenti();}
+
+/* ===== SCONTI TEMP ===== */
+window._scontiTemp=[];
+function initScontiTemp(s){window._scontiTemp=s&&s.sconti?JSON.parse(JSON.stringify(s.sconti)):[];}
+function renderScontiForm(){
+  const el=document.getElementById('lista-sconti-form');if(!el)return;
+  if(!window._scontiTemp.length){el.innerHTML='<div class="empty" style="font-size:12px;padding:8px">Nessuno sconto attivo</div>';return;}
+  el.innerHTML=window._scontiTemp.map((sc,i)=>'<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#fafaf8;border-radius:6px;margin-bottom:4px;font-size:13px"><span style="flex:1">'+sc.descrizione+' — <strong>'+sc.percentuale+'%</strong> su '+(sc.meseApplicazione||'tutti i mesi')+'</span><button class="btn danger sm" type="button" onclick="rimuoviScontoForm('+i+')"><i class="ti ti-x"></i></button></div>').join('');
+}
+function aggiungiScontoForm(){
+  const mesi=['2026-10','2026-11','2026-12','2027-01','2027-02','2027-03','2027-04','2027-05','2027-06'].map(m=>'<option value="'+m+'">'+m+'</option>').join('');
+  const el=document.getElementById('lista-sconti-form');
+  el.insertAdjacentHTML('beforeend','<div id="nuovo-sconto-row" style="display:flex;gap:6px;align-items:end;flex-wrap:wrap;padding:8px;background:#f0f7ff;border-radius:6px;margin-top:4px"><div class="field" style="margin:0;flex:1;min-width:120px"><label style="font-size:11px">Descrizione</label><input id="sc-desc" value="Promo rientro" style="font-size:12px;padding:4px 6px"></div><div class="field" style="margin:0;width:60px"><label style="font-size:11px">%</label><input id="sc-perc" type="number" value="15" min="1" max="100" style="font-size:12px;padding:4px 6px"></div><div class="field" style="margin:0;width:100px"><label style="font-size:11px">Mese</label><select id="sc-mese" style="font-size:12px;padding:4px 6px"><option value="">Tutti</option>'+mesi+'</select></div><button class="btn primary sm" type="button" onclick="confermaScontoForm()" style="margin-bottom:0"><i class="ti ti-check"></i></button><button class="btn sm" type="button" onclick="document.getElementById(\'nuovo-sconto-row\').remove()"><i class="ti ti-x"></i></button></div>');
+}
+function confermaScontoForm(){
+  const desc=document.getElementById('sc-desc').value.trim();
+  const perc=Number(document.getElementById('sc-perc').value);
+  if(!desc||!perc){alert('Inserisci descrizione e percentuale');return;}
+  window._scontiTemp.push({descrizione:desc,percentuale:perc,meseApplicazione:document.getElementById('sc-mese').value||''});
+  renderScontiForm();
+}
+function rimuoviScontoForm(i){window._scontiTemp.splice(i,1);renderScontiForm();}
 function salvaStudente(id){
   const nome=document.getElementById('f-nome').value.trim();
   const cognome=document.getElementById('f-cognome').value.trim();
   if(!nome||!cognome){alert('Nome e cognome sono obbligatori');return;}
   const tipo=document.getElementById('f-tipo').value;
   const livello=document.getElementById('f-livello').value;
-  const data={nome,cognome,email:document.getElementById('f-email').value.trim(),telefono:document.getElementById('f-tel').value.trim(),dataNascita:document.getElementById('f-nascita').value,cf:document.getElementById('f-cf').value.trim().toUpperCase(),indirizzo:document.getElementById('f-indirizzo').value.trim(),dataIscrizione:document.getElementById('f-iscrizione').value,tutoreNome:document.getElementById('f-tnome').value.trim(),tutoreCf:document.getElementById('f-tcf').value.trim().toUpperCase(),tutoreEmail:document.getElementById('f-temail').value.trim(),tutoreTel:document.getElementById('f-ttel').value.trim(),tutoreIndirizzo:document.getElementById('f-tindirizzo').value.trim(),tipo,livello,piano:tipo==='prova'?'':document.getElementById('f-piano').value,attivo:document.getElementById('f-attivo').value==='1',note:document.getElementById('f-note').value.trim()};
+  const piano=tipo==='prova'?'':document.getElementById('f-piano').value;
+  const data={nome,cognome,email:document.getElementById('f-email').value.trim(),telefono:document.getElementById('f-tel').value.trim(),dataNascita:document.getElementById('f-nascita').value,cf:document.getElementById('f-cf').value.trim().toUpperCase(),indirizzo:document.getElementById('f-indirizzo').value.trim(),dataIscrizione:document.getElementById('f-iscrizione').value,tutoreNome:document.getElementById('f-tnome').value.trim(),tutoreCf:document.getElementById('f-tcf').value.trim().toUpperCase(),tutoreEmail:document.getElementById('f-temail').value.trim(),tutoreTel:document.getElementById('f-ttel').value.trim(),tutoreIndirizzo:document.getElementById('f-tindirizzo').value.trim(),tipo,livello,piano,attivo:document.getElementById('f-attivo').value==='1',note:document.getElementById('f-note').value.trim(),tariffaOraria:piano==='ind'?Number(document.getElementById('f-tariffa').value)||18:null,quotaIscrizione:document.getElementById('f-quota-iscrizione').value||'',sconti:window._scontiTemp||[]};
   if(id!==null&&id!==undefined&&!isNaN(id)){const i=db.studenti.findIndex(s=>s.id===id);if(i>=0)db.studenti[i]={...db.studenti[i],...data};saveDb();closeModal();renderAll();apriDettaglio(id);}
   else{data.id=db.nextId++;db.studenti.push(data);saveDb();closeModal();renderAll();}
 }
