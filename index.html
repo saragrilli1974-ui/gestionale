@@ -134,6 +134,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <button class="tab active" onclick="switchTab('studenti')">Studenti</button>
     <button class="tab" onclick="switchTab('docenti')">Docenti</button>
     <button class="tab" onclick="switchTab('pianificazione')">Pianificazione</button>
+    <button class="tab" onclick="switchTab('classi')">Classi</button>
     <button class="tab" onclick="switchTab('presenze')">Presenze</button>
     <button class="tab" onclick="switchTab('pagamenti')">Pagamenti</button>
     <button class="tab" onclick="switchTab('lezioni')">Lezioni</button>
@@ -157,6 +158,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <input type="text" id="search-input" placeholder="Cerca per nome o cognome..." oninput="renderLista()">
       <select id="filtro-stato-stud" onchange="renderLista()">
         <option value="">Tutti gli stati</option><option value="1">Attivi</option><option value="0">Inattivi</option>
+      </select>
+      <select id="filtro-livello" onchange="renderLista()">
+        <option value="">Tutti i livelli</option><option value="elementari">Elementari</option><option value="medie">Medie</option><option value="superiori">Superiori</option>
       </select>
     </div>
     <div class="grid3" style="margin-bottom:1.25rem" id="metrics-iscritti">
@@ -206,6 +210,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <button class="btn" style="background:#25D366;color:#fff;border-color:#25D366" onclick="inviaPlanningDocenti()"><i class="ti ti-brand-whatsapp"></i> Invia planning ai docenti</button>
   </div>
   <div id="pianificazione-content"></div>
+</div>
+
+<div id="tab-classi" style="display:none">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:8px">
+    <div>
+      <h2 style="font-size:16px;font-weight:600;margin:0">Classi Doposcuola</h2>
+      <p style="font-size:12px;color:#9b9a94;margin:2px 0 0">Elementari e Medie — aiuto compiti — max 4 studenti per classe</p>
+    </div>
+    <button class="btn primary" onclick="openModal('nuova-classe')"><i class="ti ti-plus"></i> Nuova classe</button>
+  </div>
+  <div class="grid2" style="margin-bottom:1rem">
+    <div class="metric-card"><div class="metric-label">Classi attive</div><div class="metric-value" id="m-classi">0</div></div>
+    <div class="metric-card"><div class="metric-label">Studenti assegnati</div><div class="metric-value" id="m-classi-stud">0</div></div>
+  </div>
+  <div id="classi-content"></div>
 </div>
 
 <div id="tab-presenze" style="display:none">
@@ -323,7 +342,7 @@ const ORARI=(()=>{const a=[];for(let h=8;h<=20;h++){a.push((h<10?'0'+h:h)+':00')
 function oraMin(s){if(!s)return 0;const p=String(s).split(':');return (parseInt(p[0])||0)*60+(parseInt(p[1])||0);}
 const MAX_ST=5;
 
-let db={studenti:[],docenti:[],pagamenti:[],lezioni:[],disponibilita:[],assegnazioni:[],contatti:[],archivio:[],tutori:[],nextId:1};
+let db={studenti:[],docenti:[],pagamenti:[],lezioni:[],disponibilita:[],assegnazioni:[],contatti:[],archivio:[],tutori:[],classi:[],nextId:1};
 let currentWeekStart=getMonday(new Date());
 
 /* ===== FIREBASE: ARCHIVIO ONLINE E LOGIN ===== */
@@ -417,7 +436,7 @@ async function loadDbCloud(){
     }else{
       const data={};
       snap.forEach(doc=>{data[doc.id]=doc.data();});
-      db={studenti:[],docenti:[],pagamenti:[],lezioni:[],disponibilita:[],assegnazioni:[],contatti:[],archivio:[],tutori:[],nextId:1};
+      db={studenti:[],docenti:[],pagamenti:[],lezioni:[],disponibilita:[],assegnazioni:[],contatti:[],archivio:[],tutori:[],classi:[],nextId:1};
       DB_COLLECTIONS.forEach(k=>{if(data[k]&&Array.isArray(data[k].items))db[k]=data[k].items;});
       if(data.meta){db.nextId=data.meta.nextId||1;db.nextRicevuta=data.meta.nextRicevuta||1;}
       if(!db.nextRicevuta)db.nextRicevuta=1;
@@ -548,6 +567,7 @@ function loadDb(){
   if(!db.assegnazioni)db.assegnazioni=[];
   if(!db.contatti)db.contatti=[];if(!db.nextRicevuta)db.nextRicevuta=1;
   if(!db.archivio)db.archivio=[];
+  if(!db.classi)db.classi=[];
   seedArchivioSeNecessario();
   if(db.contatti.length===0){
     const importati=CONTATTI_IMPORT;
@@ -565,7 +585,7 @@ function loadDb(){
 }
 
 function saveDb(){try{localStorage.setItem('doposcuola-db',JSON.stringify(db));}catch(e){}saveDbCloud();}
-function renderAll(){renderLista();renderDocenti();renderPianificazione();renderPresenze();renderPagamenti();renderLezioni();renderContatti();updateFiltroStudente();updateFiltroDocente();updateMetrics();}
+function renderAll(){renderLista();renderDocenti();renderPianificazione();renderPresenze();renderPagamenti();renderLezioni();renderContatti();renderClassi();updateFiltroStudente();updateFiltroDocente();updateMetrics();}
 
 function initMesi(){
   const sel=document.getElementById('filtro-mese');if(!sel)return;
@@ -602,12 +622,14 @@ function updateMetrics(){
 function renderLista(){
   const q=(document.getElementById('search-input')||{}).value||'';
   const fs=(document.getElementById('filtro-stato-stud')||{}).value||'';
+  const fl=(document.getElementById('filtro-livello')||{}).value||'';
   const lista=document.getElementById('lista-studenti');if(!lista)return;
-  let arr=db.studenti.filter(s=>(s.nome+' '+s.cognome).toLowerCase().includes(q.toLowerCase())&&(fs===''||String(s.attivo!==false?1:0)===fs));
+  let arr=db.studenti.filter(s=>(s.nome+' '+s.cognome).toLowerCase().includes(q.toLowerCase())&&(fs===''||String(s.attivo!==false?1:0)===fs)&&(fl===''||(s.livello||'superiori')===fl));
   if(currentStudTab==='prova')arr=arr.filter(s=>s.tipo==='prova');
   else if(currentStudTab==='iscritti')arr=arr.filter(s=>s.tipo!=='prova');
   if(!arr.length){lista.innerHTML='<div class="empty">Nessuno studente trovato</div>';updateMetrics();return;}
-  lista.innerHTML=arr.map(s=>{const p=PIANI.find(x=>x.id===s.piano);const isProva=s.tipo==='prova';const stato=isProva?'<span class="badge purple">In prova</span>':(s.attivo===false?'<span class="badge gray">Inattivo</span>':'<span class="badge green">Attivo</span>');return`<div class="row-item" onclick="apriDettaglio(${s.id})"><div class="avatar ${avColor(s.id)}">${initials(s.nome,s.cognome)}</div><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:500">${s.nome} ${s.cognome}</div><div style="font-size:12px;color:#9b9a94">${isProva?'Settimana gratuita':(p?p.label:'—')}</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0">${stato}<i class="ti ti-chevron-right" style="color:#9b9a94;font-size:16px"></i></div></div>`;}).join('');
+  const livelloLabel=s=>{const l=s.livello||'superiori';return l==='elementari'?'Elementari':l==='medie'?'Medie':'Superiori';};
+  lista.innerHTML=arr.map(s=>{const p=PIANI.find(x=>x.id===s.piano);const isProva=s.tipo==='prova';const stato=isProva?'<span class="badge purple">In prova</span>':(s.attivo===false?'<span class="badge gray">Inattivo</span>':'<span class="badge green">Attivo</span>');const lvl=(s.livello&&s.livello!=='superiori')?`<span class="badge blue">${livelloLabel(s)}</span> `:'';return`<div class="row-item" onclick="apriDettaglio(${s.id})"><div class="avatar ${avColor(s.id)}">${initials(s.nome,s.cognome)}</div><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:500">${s.nome} ${s.cognome}</div><div style="font-size:12px;color:#9b9a94">${lvl}${isProva?'Settimana gratuita':(p?p.label:'—')}</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0">${stato}<i class="ti ti-chevron-right" style="color:#9b9a94;font-size:16px"></i></div></div>`;}).join('');
   updateMetrics();
 }
 
@@ -624,7 +646,7 @@ function apriDettaglio(id){
   document.getElementById('dettaglio-content').innerHTML=`
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:1.5rem;flex-wrap:wrap">
       <div class="avatar ${avColor(s.id)}" style="width:48px;height:48px;font-size:16px">${initials(s.nome,s.cognome)}</div>
-      <div style="flex:1"><div style="font-size:20px;font-weight:600">${s.nome} ${s.cognome}</div><div style="font-size:13px;color:#9b9a94">${s.tipo==='prova'?'Settimana gratuita':(p?p.label:'—')} · ${s.tipo==='prova'?'<span class="badge purple">In prova</span>':(s.attivo===false?'<span class="badge gray">Inattivo</span>':'<span class="badge green">Iscritto</span>')}</div></div>
+      <div style="flex:1"><div style="font-size:20px;font-weight:600">${s.nome} ${s.cognome}</div><div style="font-size:13px;color:#9b9a94">${s.livello&&s.livello!=='superiori'?'<span class="badge blue">'+(s.livello==='elementari'?'Elementari':'Medie')+'</span> ':''}${s.tipo==='prova'?'Settimana gratuita':(p?p.label:'—')} · ${s.tipo==='prova'?'<span class="badge purple">In prova</span>':(s.attivo===false?'<span class="badge gray">Inattivo</span>':'<span class="badge green">Iscritto</span>')}</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">${s.tipo==='prova'?`<button class="btn" style="background:#7c3aed;color:#fff;border-color:#7c3aed" onclick="confermaIscrizione(${s.id})"><i class="ti ti-user-check"></i> Conferma iscrizione</button>`:''}<button class="btn success" onclick="generaPlanningPDF(${s.id})"><i class="ti ti-file-download"></i> Planning PDF</button><button class="btn" style="background:#25D366;color:#fff;border-color:#25D366" onclick="apriWhatsApp(${s.id})"><i class="ti ti-brand-whatsapp"></i> WhatsApp</button><button class="btn" onclick="openModal('modifica-studente',${s.id})"><i class="ti ti-edit"></i> Modifica</button><button class="btn danger" onclick="eliminaStudente(${s.id})"><i class="ti ti-trash"></i></button></div>
     </div>
     <div class="grid3" style="margin-bottom:1.25rem">
@@ -1445,8 +1467,9 @@ function openModal(tipo,arg){
         <div class="field"><label>Telefono tutore</label><input id="f-ttel" value="${s?s.tutoreTel||'':''}" placeholder="+39..."></div>
         <div class="field" style="grid-column:1/-1"><label>Indirizzo tutore</label><input id="f-tindirizzo" value="${s?s.tutoreIndirizzo||'':''}" placeholder="Via, città, CAP"></div>
       </div>
-      <div class="section-title">Tipo, piano e stato</div>
+      <div class="section-title">Livello, tipo, piano e stato</div>
       <div class="grid2">
+        <div class="field"><label>Livello scolastico *</label><select id="f-livello"><option value="superiori"${!s||s.livello==='superiori'||!s.livello?' selected':''}>Superiori</option><option value="medie"${s&&s.livello==='medie'?' selected':''}>Medie</option><option value="elementari"${s&&s.livello==='elementari'?' selected':''}>Elementari</option></select></div>
         <div class="field"><label>Tipo</label><select id="f-tipo" onchange="document.getElementById('wrap-piano').style.display=this.value==='prova'?'none':'block'"><option value="prova"${(s&&s.tipo==='prova')||(!s&&currentStudTab==='prova')?' selected':''}>In prova (settimana gratuita)</option><option value="iscritto"${s?s.tipo!=='prova'?' selected':'':currentStudTab!=='prova'?' selected':''}>Iscritto</option></select></div>
         <div class="field" id="wrap-piano" style="${(s&&s.tipo==='prova')||(!s&&currentStudTab==='prova')?'display:none':''}"><label>Piano</label><select id="f-piano">${pianiOpt(s?s.piano:'5g')}</select></div>
         <div class="field"><label>Stato</label><select id="f-attivo"><option value="1"${!s||s.attivo!==false?' selected':''}>Attivo</option><option value="0"${s&&s.attivo===false?' selected':''}>Inattivo</option></select></div>
@@ -1530,7 +1553,7 @@ function openModal(tipo,arg){
     const wk=fmtDate(currentWeekStart);
     const dispSett=db.disponibilita.filter(d=>d.settimana===wk);
     let slotOpts=dispSett.map(slot=>{const doc=db.docenti.find(x=>x.id===slot.docenteId);const n=db.assegnazioni.filter(a=>a.disponibilitaId===slot.id).length;return`<option value="${slot.id}"${arg===slot.id?' selected':''}>${doc?doc.nome+' '+doc.cognome:'?'} — ${slot.giorno} ${slot.oraInizio}-${slot.oraFine} (${n}/${MAX_ST})</option>`;}).join('');
-    const studOpt=db.studenti.filter(s=>s.attivo!==false).map(s=>`<option value="${s.id}">${s.nome} ${s.cognome}</option>`).join('');
+    const studOpt=db.studenti.filter(s=>s.attivo!==false&&(s.livello||'superiori')==='superiori').map(s=>`<option value="${s.id}">${s.nome} ${s.cognome}</option>`).join('');
     html=`<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal"><h2>Assegna studente</h2>
       <div class="field"><label>Slot *</label><select id="ass-slot" onchange="aggiornaMaterieAss();aggiornaOrarioAss()">${slotOpts||'<option value="">Nessuno slot disponibile questa settimana</option>'}</select></div>
       <div class="field"><label>Orario *</label><select id="ass-orario"><option value="">— seleziona slot prima —</option></select></div>
@@ -1572,6 +1595,29 @@ function openModal(tipo,arg){
       <div class="field"><label>Note / argomenti</label><textarea id="l-note" placeholder="Es: equazioni di secondo grado...">${rec?rec.nota:''}</textarea></div>
       <div class="modal-footer"><button class="btn" onclick="closeModal()">Annulla</button><button class="btn primary" onclick="salvaLezione()">${rec?'Fissa recupero':'Aggiungi'}</button></div>
     </div></div>`;
+  } else if(tipo==='nuova-classe'||tipo==='modifica-classe'){
+    const c=tipo==='modifica-classe'?(db.classi||[]).find(x=>x.id===arg):null;
+    const docOpt=db.docenti.filter(d=>d.attivo!==false).map(d=>`<option value="${d.id}"${c&&c.docenteId===d.id?' selected':''}>${d.nome} ${d.cognome}</option>`).join('');
+    html=`<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal"><h2>${c?'Modifica classe':'Nuova classe'}</h2>
+      <div class="grid2">
+        <div class="field"><label>Nome classe *</label><input id="cl-nome" value="${c?c.nome:''}" placeholder="Es: Classe A pomeriggio"></div>
+        <div class="field"><label>Docente *</label><select id="cl-docente">${docOpt}</select></div>
+        <div class="field"><label>Fascia oraria *</label><select id="cl-fascia"><option value="15:00-17:00"${c&&c.fascia==='15:00-17:00'?' selected':''}>15:00 – 17:00</option><option value="17:00-19:00"${c&&c.fascia==='17:00-19:00'?' selected':''}>17:00 – 19:00</option></select></div>
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal()">Annulla</button><button class="btn primary" onclick="salvaClasse(${c?c.id:'null'})">${c?'Salva':'Crea classe'}</button></div>
+    </div></div>`;
+  } else if(tipo==='aggiungi-a-classe'){
+    const c=(db.classi||[]).find(x=>x.id===arg);if(!c){return;}
+    const already=(c.studenti||[]);
+    const elegibili=db.studenti.filter(s=>s.attivo!==false&&(s.livello==='elementari'||s.livello==='medie')&&!already.includes(s.id));
+    const studOpt=elegibili.map(s=>`<option value="${s.id}">${s.nome} ${s.cognome} (${(s.livello||'').charAt(0).toUpperCase()+(s.livello||'').slice(1)})</option>`).join('');
+    const posti=MAX_CLASSE-already.length;
+    html=`<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal"><h2>Aggiungi a ${c.nome}</h2>
+      <p style="font-size:13px;color:#6b6a65;margin-bottom:12px">${posti} post${posti===1?'o':'i'} liber${posti===1?'o':'i'} su ${MAX_CLASSE}</p>
+      ${elegibili.length?`<div class="field"><label>Studente *</label><select id="cl-studente">${studOpt}</select></div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal()">Annulla</button><button class="btn primary" onclick="aggiungiAClasse(${c.id})"><i class="ti ti-user-plus"></i> Aggiungi</button></div>`
+      :`<p style="color:#9b9a94;font-size:14px">Nessuno studente elementari/medie disponibile. Inserisci prima lo studente nel tab Studenti con livello "Elementari" o "Medie".</p><div class="modal-footer"><button class="btn" onclick="closeModal()">Chiudi</button></div>`}
+    </div></div>`;
   }
   mc.innerHTML=html;
   if(tipo==='nuova-lezione'){const keepMat=(arg&&typeof arg==='object')?arg.materia:null;setTimeout(()=>aggiornaMaterieLezione(keepMat),50);}
@@ -1580,6 +1626,30 @@ function openModal(tipo,arg){
 }
 
 function closeModal(){document.getElementById('modal-container').innerHTML='';}
+
+function salvaClasse(id){
+  const nome=document.getElementById('cl-nome').value.trim();
+  const docenteId=Number(document.getElementById('cl-docente').value);
+  const fascia=document.getElementById('cl-fascia').value;
+  if(!nome){alert('Inserisci il nome della classe');return;}
+  if(id!==null&&id!==undefined){
+    const i=db.classi.findIndex(c=>c.id===id);
+    if(i>=0){db.classi[i].nome=nome;db.classi[i].docenteId=docenteId;db.classi[i].fascia=fascia;}
+  } else {
+    db.classi.push({id:db.nextId++,nome,docenteId,fascia,studenti:[]});
+  }
+  saveDb();closeModal();renderClassi();
+}
+function aggiungiAClasse(classeId){
+  const stId=Number(document.getElementById('cl-studente').value);
+  if(!stId)return;
+  const c=db.classi.find(x=>x.id===classeId);if(!c)return;
+  if(!c.studenti)c.studenti=[];
+  if(c.studenti.length>=MAX_CLASSE){alert('Classe piena (max '+MAX_CLASSE+' studenti)');return;}
+  if(c.studenti.includes(stId)){alert('Studente già in questa classe');return;}
+  c.studenti.push(stId);
+  saveDb();closeModal();renderClassi();
+}
 
 function aggiornaGiorniDisp(){
   const inp=document.getElementById('disp-settimana');
@@ -1626,7 +1696,8 @@ function salvaStudente(id){
   const cognome=document.getElementById('f-cognome').value.trim();
   if(!nome||!cognome){alert('Nome e cognome sono obbligatori');return;}
   const tipo=document.getElementById('f-tipo').value;
-  const data={nome,cognome,email:document.getElementById('f-email').value.trim(),telefono:document.getElementById('f-tel').value.trim(),dataNascita:document.getElementById('f-nascita').value,cf:document.getElementById('f-cf').value.trim().toUpperCase(),indirizzo:document.getElementById('f-indirizzo').value.trim(),dataIscrizione:document.getElementById('f-iscrizione').value,tutoreNome:document.getElementById('f-tnome').value.trim(),tutoreCf:document.getElementById('f-tcf').value.trim().toUpperCase(),tutoreEmail:document.getElementById('f-temail').value.trim(),tutoreTel:document.getElementById('f-ttel').value.trim(),tutoreIndirizzo:document.getElementById('f-tindirizzo').value.trim(),tipo,piano:tipo==='prova'?'':document.getElementById('f-piano').value,attivo:document.getElementById('f-attivo').value==='1',note:document.getElementById('f-note').value.trim()};
+  const livello=document.getElementById('f-livello').value;
+  const data={nome,cognome,email:document.getElementById('f-email').value.trim(),telefono:document.getElementById('f-tel').value.trim(),dataNascita:document.getElementById('f-nascita').value,cf:document.getElementById('f-cf').value.trim().toUpperCase(),indirizzo:document.getElementById('f-indirizzo').value.trim(),dataIscrizione:document.getElementById('f-iscrizione').value,tutoreNome:document.getElementById('f-tnome').value.trim(),tutoreCf:document.getElementById('f-tcf').value.trim().toUpperCase(),tutoreEmail:document.getElementById('f-temail').value.trim(),tutoreTel:document.getElementById('f-ttel').value.trim(),tutoreIndirizzo:document.getElementById('f-tindirizzo').value.trim(),tipo,livello,piano:tipo==='prova'?'':document.getElementById('f-piano').value,attivo:document.getElementById('f-attivo').value==='1',note:document.getElementById('f-note').value.trim()};
   if(id!==null&&id!==undefined&&!isNaN(id)){const i=db.studenti.findIndex(s=>s.id===id);if(i>=0)db.studenti[i]={...db.studenti[i],...data};saveDb();closeModal();renderAll();apriDettaglio(id);}
   else{data.id=db.nextId++;db.studenti.push(data);saveDb();closeModal();renderAll();}
 }
@@ -1778,6 +1849,50 @@ function eseguiConfermaIscrizione(id){
 function eliminaDocente(id){if(!confirm('Eliminare questo docente?'))return;db.docenti=db.docenti.filter(d=>d.id!==id);saveDb();backToDocenti();}
 function eliminaPagamento(id,stId){if(!confirm('Eliminare questo pagamento?'))return;db.pagamenti=db.pagamenti.filter(p=>p.id!==id);saveDb();if(stId)apriDettaglio(stId);else renderPagamenti();}
 function eliminaLezione(id,stId){if(!confirm('Eliminare questa lezione?'))return;db.lezioni=db.lezioni.filter(l=>l.id!==id);saveDb();if(stId)apriDettaglio(stId);else renderLezioni();}
+
+/* ===================== CLASSI DOPOSCUOLA (Elementari/Medie) ===================== */
+const MAX_CLASSE=4;
+function renderClassi(){
+  const cont=document.getElementById('classi-content');if(!cont)return;
+  const classi=db.classi||[];
+  document.getElementById('m-classi').textContent=classi.length;
+  const totStud=classi.reduce((a,c)=>(c.studenti||[]).length+a,0);
+  document.getElementById('m-classi-stud').textContent=totStud;
+  if(!classi.length){cont.innerHTML='<div class="empty">Nessuna classe creata. Clicca "Nuova classe" per iniziare.</div>';return;}
+  cont.innerHTML=classi.map(c=>{
+    const doc=db.docenti.find(d=>d.id===c.docenteId);
+    const docNome=doc?doc.nome+' '+doc.cognome:'—';
+    const studs=(c.studenti||[]).map(sid=>{const s=db.studenti.find(x=>x.id===sid);return s?s:null;}).filter(Boolean);
+    const posti=MAX_CLASSE-studs.length;
+    return`<div class="card" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <div>
+          <div style="font-size:15px;font-weight:600">${c.nome}</div>
+          <div style="font-size:12px;color:#9b9a94"><i class="ti ti-clock"></i> ${c.fascia} · <i class="ti ti-user"></i> ${docNome} · Lun-Ven</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <span class="badge ${posti>0?'green':'red'}">${posti>0?posti+' post'+(posti===1?'o':'i')+' liber'+(posti===1?'o':'i'):'Completa'}</span>
+          <button class="btn sm" onclick="openModal('modifica-classe',${c.id})" title="Modifica"><i class="ti ti-edit"></i></button>
+          <button class="btn danger sm" onclick="eliminaClasse(${c.id})" title="Elimina"><i class="ti ti-trash"></i></button>
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+        ${studs.map(s=>`<div style="display:inline-flex;align-items:center;gap:6px;background:#f5f4f0;border-radius:8px;padding:5px 10px;font-size:13px"><div class="avatar ${avColor(s.id)}" style="width:24px;height:24px;font-size:10px">${initials(s.nome,s.cognome)}</div>${s.nome} ${s.cognome} <span class="badge ${s.livello==='elementari'?'amber':'blue'}" style="font-size:10px">${(s.livello||'').charAt(0).toUpperCase()+(s.livello||'').slice(1)}</span><button onclick="rimuoviDaClasse(${c.id},${s.id})" style="background:none;border:none;cursor:pointer;color:#991b1b;font-size:14px" title="Rimuovi"><i class="ti ti-x"></i></button></div>`).join('')}
+        ${studs.length===0?'<span style="color:#9b9a94;font-size:13px">Nessuno studente assegnato</span>':''}
+      </div>
+      ${posti>0?`<button class="btn sm" onclick="openModal('aggiungi-a-classe',${c.id})"><i class="ti ti-user-plus"></i> Aggiungi studente</button>`:''}
+    </div>`;
+  }).join('');
+}
+
+function eliminaClasse(id){
+  if(!confirm('Eliminare questa classe?'))return;
+  db.classi=db.classi.filter(c=>c.id!==id);saveDb();renderClassi();
+}
+function rimuoviDaClasse(classeId,studenteId){
+  const c=db.classi.find(x=>x.id===classeId);if(!c)return;
+  c.studenti=(c.studenti||[]).filter(sid=>sid!==studenteId);saveDb();renderClassi();
+}
 
 /* ===================== PORTALE DOCENTE ===================== */
 let pdWeekStart=getMonday(new Date());
@@ -2053,8 +2168,8 @@ function esportaVCardSenzaEmail(){
 }
 
 function switchTab(t){
-  ['studenti','docenti','pianificazione','presenze','pagamenti','lezioni','contatti','archivio'].forEach(x=>{document.getElementById('tab-'+x).style.display=x===t?'block':'none';});
-  document.querySelectorAll('.tab').forEach((el,i)=>{el.classList.toggle('active',['studenti','docenti','pianificazione','presenze','pagamenti','lezioni','contatti','archivio'][i]===t);});
+  ['studenti','docenti','pianificazione','classi','presenze','pagamenti','lezioni','contatti','archivio'].forEach(x=>{document.getElementById('tab-'+x).style.display=x===t?'block':'none';});
+  document.querySelectorAll('.topbar > .tabs > .tab').forEach((el,i)=>{el.classList.toggle('active',['studenti','docenti','pianificazione','classi','presenze','pagamenti','lezioni','contatti','archivio'][i]===t);});
   if(t==='presenze')renderPresenze();
   if(t==='pagamenti')renderPagamenti();
   if(t==='lezioni'){renderLezioni();updateFiltroStudente();}
@@ -2062,6 +2177,7 @@ function switchTab(t){
   if(t==='docenti')renderDocenti();
   if(t==='contatti')renderContatti();
   if(t==='archivio')renderArchivio();
+  if(t==='classi')renderClassi();
 }
 
 /* Esporta i contatti con email valida in un file CSV pronto da caricare su Brevo.
