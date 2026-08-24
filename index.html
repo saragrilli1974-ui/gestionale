@@ -607,7 +607,7 @@ function renderLista(){
   if(currentStudTab==='prova')arr=arr.filter(s=>s.tipo==='prova');
   else if(currentStudTab==='iscritti')arr=arr.filter(s=>s.tipo!=='prova');
   if(!arr.length){lista.innerHTML='<div class="empty">Nessuno studente trovato</div>';updateMetrics();return;}
-  lista.innerHTML=arr.map(s=>{const p=PIANI.find(x=>x.id===s.piano);const isProva=s.tipo==='prova';const stato=isProva?'<span class="badge purple">In prova</span>':(s.attivo===false?'<span class="badge gray">Inattivo</span>':'<span class="badge green">Attivo</span>');return`<div class="row-item" onclick="apriDettaglio(${s.id})"><div class="avatar ${avColor(s.id)}">${initials(s.nome,s.cognome)}</div><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:500">${s.nome} ${s.cognome}</div><div style="font-size:12px;color:#9b9a94">${p?p.label:'—'}</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0">${stato}<i class="ti ti-chevron-right" style="color:#9b9a94;font-size:16px"></i></div></div>`;}).join('');
+  lista.innerHTML=arr.map(s=>{const p=PIANI.find(x=>x.id===s.piano);const isProva=s.tipo==='prova';const stato=isProva?'<span class="badge purple">In prova</span>':(s.attivo===false?'<span class="badge gray">Inattivo</span>':'<span class="badge green">Attivo</span>');return`<div class="row-item" onclick="apriDettaglio(${s.id})"><div class="avatar ${avColor(s.id)}">${initials(s.nome,s.cognome)}</div><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:500">${s.nome} ${s.cognome}</div><div style="font-size:12px;color:#9b9a94">${isProva?'Settimana gratuita':(p?p.label:'—')}</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0">${stato}<i class="ti ti-chevron-right" style="color:#9b9a94;font-size:16px"></i></div></div>`;}).join('');
   updateMetrics();
 }
 
@@ -624,12 +624,12 @@ function apriDettaglio(id){
   document.getElementById('dettaglio-content').innerHTML=`
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:1.5rem;flex-wrap:wrap">
       <div class="avatar ${avColor(s.id)}" style="width:48px;height:48px;font-size:16px">${initials(s.nome,s.cognome)}</div>
-      <div style="flex:1"><div style="font-size:20px;font-weight:600">${s.nome} ${s.cognome}</div><div style="font-size:13px;color:#9b9a94">${p?p.label:'—'} · ${s.tipo==='prova'?'<span class="badge purple">In prova</span>':(s.attivo===false?'<span class="badge gray">Inattivo</span>':'<span class="badge green">Iscritto</span>')}</div></div>
+      <div style="flex:1"><div style="font-size:20px;font-weight:600">${s.nome} ${s.cognome}</div><div style="font-size:13px;color:#9b9a94">${s.tipo==='prova'?'Settimana gratuita':(p?p.label:'—')} · ${s.tipo==='prova'?'<span class="badge purple">In prova</span>':(s.attivo===false?'<span class="badge gray">Inattivo</span>':'<span class="badge green">Iscritto</span>')}</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">${s.tipo==='prova'?`<button class="btn" style="background:#7c3aed;color:#fff;border-color:#7c3aed" onclick="confermaIscrizione(${s.id})"><i class="ti ti-user-check"></i> Conferma iscrizione</button>`:''}<button class="btn success" onclick="generaPlanningPDF(${s.id})"><i class="ti ti-file-download"></i> Planning PDF</button><button class="btn" style="background:#25D366;color:#fff;border-color:#25D366" onclick="apriWhatsApp(${s.id})"><i class="ti ti-brand-whatsapp"></i> WhatsApp</button><button class="btn" onclick="openModal('modifica-studente',${s.id})"><i class="ti ti-edit"></i> Modifica</button><button class="btn danger" onclick="eliminaStudente(${s.id})"><i class="ti ti-trash"></i></button></div>
     </div>
     <div class="grid3" style="margin-bottom:1.25rem">
       <div class="metric-card"><div class="metric-label">Ore totali tenute</div><div class="metric-value">${totOre}h</div></div>
-      <div class="metric-card"><div class="metric-label">Canone mensile</div><div class="metric-value">${p&&p.prezzo>0?'€'+p.prezzo:'a lezione'}</div></div>
+      <div class="metric-card"><div class="metric-label">Canone mensile</div><div class="metric-value">${s.tipo==='prova'?'Gratuito':(p&&p.prezzo>0?'€'+p.prezzo:'a lezione')}</div></div>
       <div class="metric-card"><div class="metric-label">Lezioni totali</div><div class="metric-value">${lezioni.length}</div></div>
     </div>
     <div class="card">
@@ -1447,8 +1447,8 @@ function openModal(tipo,arg){
       </div>
       <div class="section-title">Tipo, piano e stato</div>
       <div class="grid2">
-        <div class="field"><label>Tipo</label><select id="f-tipo"><option value="prova"${(s&&s.tipo==='prova')||(!s&&currentStudTab==='prova')?' selected':''}>In prova (settimana gratuita)</option><option value="iscritto"${s?s.tipo!=='prova'?' selected':'':currentStudTab!=='prova'?' selected':''}>Iscritto</option></select></div>
-        <div class="field"><label>Piano</label><select id="f-piano">${pianiOpt(s?s.piano:'5g')}</select></div>
+        <div class="field"><label>Tipo</label><select id="f-tipo" onchange="document.getElementById('wrap-piano').style.display=this.value==='prova'?'none':'block'"><option value="prova"${(s&&s.tipo==='prova')||(!s&&currentStudTab==='prova')?' selected':''}>In prova (settimana gratuita)</option><option value="iscritto"${s?s.tipo!=='prova'?' selected':'':currentStudTab!=='prova'?' selected':''}>Iscritto</option></select></div>
+        <div class="field" id="wrap-piano" style="${(s&&s.tipo==='prova')||(!s&&currentStudTab==='prova')?'display:none':''}"><label>Piano</label><select id="f-piano">${pianiOpt(s?s.piano:'5g')}</select></div>
         <div class="field"><label>Stato</label><select id="f-attivo"><option value="1"${!s||s.attivo!==false?' selected':''}>Attivo</option><option value="0"${s&&s.attivo===false?' selected':''}>Inattivo</option></select></div>
       </div>
       <div class="field"><label>Note</label><textarea id="f-note" placeholder="Preferenze docente, note...">${s?s.note||'':''}</textarea></div>
@@ -1625,7 +1625,8 @@ function salvaStudente(id){
   const nome=document.getElementById('f-nome').value.trim();
   const cognome=document.getElementById('f-cognome').value.trim();
   if(!nome||!cognome){alert('Nome e cognome sono obbligatori');return;}
-  const data={nome,cognome,email:document.getElementById('f-email').value.trim(),telefono:document.getElementById('f-tel').value.trim(),dataNascita:document.getElementById('f-nascita').value,cf:document.getElementById('f-cf').value.trim().toUpperCase(),indirizzo:document.getElementById('f-indirizzo').value.trim(),dataIscrizione:document.getElementById('f-iscrizione').value,tutoreNome:document.getElementById('f-tnome').value.trim(),tutoreCf:document.getElementById('f-tcf').value.trim().toUpperCase(),tutoreEmail:document.getElementById('f-temail').value.trim(),tutoreTel:document.getElementById('f-ttel').value.trim(),tutoreIndirizzo:document.getElementById('f-tindirizzo').value.trim(),tipo:document.getElementById('f-tipo').value,piano:document.getElementById('f-piano').value,attivo:document.getElementById('f-attivo').value==='1',note:document.getElementById('f-note').value.trim()};
+  const tipo=document.getElementById('f-tipo').value;
+  const data={nome,cognome,email:document.getElementById('f-email').value.trim(),telefono:document.getElementById('f-tel').value.trim(),dataNascita:document.getElementById('f-nascita').value,cf:document.getElementById('f-cf').value.trim().toUpperCase(),indirizzo:document.getElementById('f-indirizzo').value.trim(),dataIscrizione:document.getElementById('f-iscrizione').value,tutoreNome:document.getElementById('f-tnome').value.trim(),tutoreCf:document.getElementById('f-tcf').value.trim().toUpperCase(),tutoreEmail:document.getElementById('f-temail').value.trim(),tutoreTel:document.getElementById('f-ttel').value.trim(),tutoreIndirizzo:document.getElementById('f-tindirizzo').value.trim(),tipo,piano:tipo==='prova'?'':document.getElementById('f-piano').value,attivo:document.getElementById('f-attivo').value==='1',note:document.getElementById('f-note').value.trim()};
   if(id!==null&&id!==undefined&&!isNaN(id)){const i=db.studenti.findIndex(s=>s.id===id);if(i>=0)db.studenti[i]={...db.studenti[i],...data};saveDb();closeModal();renderAll();apriDettaglio(id);}
   else{data.id=db.nextId++;db.studenti.push(data);saveDb();closeModal();renderAll();}
 }
@@ -1760,9 +1761,19 @@ function eliminaStudente(id){
   saveDb();backToLista();
 }
 function confermaIscrizione(id){
-  if(!confirm('Confermare l\'iscrizione di questo studente? Verrà spostato dalla lista "In prova" alla lista "Iscritti".'))return;
+  const s=db.studenti.find(x=>x.id===id);if(!s)return;
+  const pianoOptions=PIANI.map(p=>`<option value="${p.id}">${p.label}${p.prezzo>0?' — €'+p.prezzo+'/mese':''}</option>`).join('');
+  const mc=document.getElementById('modal-container');
+  mc.innerHTML=`<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal"><h2>Conferma iscrizione</h2>
+    <p style="font-size:14px;color:#6b6a65;margin-bottom:16px"><strong>${s.nome} ${s.cognome}</strong> verrà spostato dalla lista "In prova" alla lista "Iscritti".</p>
+    <div class="field"><label>Scegli il piano *</label><select id="conf-piano">${pianoOptions}</select></div>
+    <div class="modal-footer"><button class="btn" onclick="closeModal()">Annulla</button><button class="btn primary" onclick="eseguiConfermaIscrizione(${id})"><i class="ti ti-user-check"></i> Conferma</button></div>
+  </div></div>`;
+}
+function eseguiConfermaIscrizione(id){
+  const piano=document.getElementById('conf-piano').value;
   const i=db.studenti.findIndex(s=>s.id===id);
-  if(i>=0){db.studenti[i].tipo='iscritto';db.studenti[i].dataIscrizione=db.studenti[i].dataIscrizione||new Date().toISOString().slice(0,10);saveDb();apriDettaglio(id);}
+  if(i>=0){db.studenti[i].tipo='iscritto';db.studenti[i].piano=piano;db.studenti[i].dataIscrizione=db.studenti[i].dataIscrizione||new Date().toISOString().slice(0,10);saveDb();closeModal();apriDettaglio(id);}
 }
 function eliminaDocente(id){if(!confirm('Eliminare questo docente?'))return;db.docenti=db.docenti.filter(d=>d.id!==id);saveDb();backToDocenti();}
 function eliminaPagamento(id,stId){if(!confirm('Eliminare questo pagamento?'))return;db.pagamenti=db.pagamenti.filter(p=>p.id!==id);saveDb();if(stId)apriDettaglio(stId);else renderPagamenti();}
