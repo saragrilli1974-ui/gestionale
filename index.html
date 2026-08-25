@@ -1329,7 +1329,7 @@ function caricaDalPlanning(){
     const esiste=db.lezioni.find(l=>l.studenteId===a.studenteId&&l.data===giorno&&l.orario===orario);
     if(esiste){saltate++;return;}
     const durata=Math.max(0.5,(oraMin(a.oraFine)-oraMin(a.oraInizio))/60)||1;
-    db.lezioni.push({id:db.nextId++,studenteId:a.studenteId,data:giorno,orario,materia:a.materia,docente:a.docente||'',durata,stato:'Da confermare',note:''});
+    db.lezioni.push({id:db.nextId++,studenteId:a.studenteId,data:giorno,orario,materia:a.materia,docente:a.docente||'',durata,stato:'Da confermare',note:'',tipoLezione:a.tipoLezione||'gruppo'});
     create++;
   });
   saveDb();renderPresenze();
@@ -1592,6 +1592,7 @@ function openModal(tipo,arg){
       <div class="field"><label>Orario *</label><select id="ass-orario"><option value="">— seleziona slot prima —</option></select></div>
       <div class="field"><label>Studente *</label><select id="ass-studente">${studOpt}</select></div>
       <div class="field"><label>Materia *</label><select id="ass-materia"><option value="">— seleziona slot prima —</option></select></div>
+      <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="ass-individuale" style="width:16px;height:16px"> Lezione individuale (€18/h invece di €5,50/h)</label></div>
       <div class="modal-footer"><button class="btn" onclick="closeModal()">Annulla</button><button class="btn primary" onclick="salvaAssegnazione()">Assegna</button></div>
     </div></div>`;
   } else if(tipo==='nuovo-pagamento'){
@@ -1625,6 +1626,7 @@ function openModal(tipo,arg){
         <div class="field"><label>Durata (ore)</label><input id="l-durata" type="number" value="1" min="0.5" step="0.5"></div>
         <div class="field"><label>Stato</label><select id="l-stato">${STATI_LEZ.map(s=>`<option${rec&&s==='Da confermare'?' selected':''}>${s}</option>`).join('')}</select></div>
       </div>
+      <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="l-individuale" style="width:16px;height:16px"> Lezione individuale (€18/h invece di €5,50/h)</label></div>
       <div class="field"><label>Note / argomenti</label><textarea id="l-note" placeholder="Es: equazioni di secondo grado...">${rec?rec.nota:''}</textarea></div>
       <div class="modal-footer"><button class="btn" onclick="closeModal()">Annulla</button><button class="btn primary" onclick="salvaLezione()">${rec?'Fissa recupero':'Aggiungi'}</button></div>
     </div></div>`;
@@ -1729,15 +1731,18 @@ function meseCorrente(){const d=new Date();return d.getFullYear()+'-'+String(d.g
 function labelMese(m){const [a,mm]=m.split('-');const nomi=['','Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];return (nomi[Number(mm)]||mm)+' '+a;}
 
 function calcolaImportoStudente(s,mese){
-  const tariffa=s.piano==='ind'?(s.tariffaOraria||18):5.50;
   const lezMese=db.lezioni.filter(l=>l.studenteId===s.id&&l.data.startsWith(mese));
   const fatturabili=lezMese.filter(l=>l.stato==='Tenuta'||l.stato==='Assente');
   const nonFatturabili=lezMese.filter(l=>l.stato==='Assente giustificata'||l.stato==='Docente assente');
   const daConfermare=lezMese.filter(l=>l.stato==='Da confermare');
-  const oreFatt=fatturabili.reduce((a,l)=>a+(Number(l.durata)||1),0);
+  // Calcola separatamente ore gruppo e individuali
+  const oreGruppo=fatturabili.filter(l=>l.tipoLezione!=='individuale').reduce((a,l)=>a+(Number(l.durata)||1),0);
+  const oreInd=fatturabili.filter(l=>l.tipoLezione==='individuale').reduce((a,l)=>a+(Number(l.durata)||1),0);
+  const tariffaInd=s.tariffaOraria||18;
+  const oreFatt=oreGruppo+oreInd;
   const oreNonFatt=nonFatturabili.reduce((a,l)=>a+(Number(l.durata)||1),0);
   const oreConf=daConfermare.reduce((a,l)=>a+(Number(l.durata)||1),0);
-  let importo=tariffa*oreFatt;
+  let importo=(oreGruppo*5.50)+(oreInd*tariffaInd);
   // Applica sconti
   if(s.sconti&&s.sconti.length){
     s.sconti.forEach(sc=>{
@@ -1750,7 +1755,7 @@ function calcolaImportoStudente(s,mese){
   // Quota iscrizione
   let quotaIscr=0;
   if(s.quotaIscrizione==='pending')quotaIscr=20;
-  return {importo,quotaIscr,totale:importo+quotaIscr,oreFatt,oreNonFatt,oreConf,tariffa,totLezioni:lezMese.length};
+  return {importo,quotaIscr,totale:importo+quotaIscr,oreFatt,oreNonFatt,oreConf,oreGruppo,oreInd,tariffaInd,totLezioni:lezMese.length};
 }
 
 function apriGenerazioneMassiva(){
@@ -1762,9 +1767,11 @@ function apriGenerazioneMassiva(){
   let righe=daGenerare.map(s=>{
     const calc=calcolaImportoStudente(s,mese);
     const p=PIANI.find(x=>x.id===s.piano);
-    let dettaglio=calc.oreFatt+'h × €'+calc.tariffa+(s.piano==='ind'?' (ind)':' (gruppo)');
-    if(calc.oreConf)dettaglio+=' · '+calc.oreConf+'h da confermare';
-    if(calc.quotaIscr)dettaglio+=' + €20 iscrizione';
+    let dettaglio='';
+    if(calc.oreGruppo)dettaglio+=calc.oreGruppo+'h gruppo (€5,50)';
+    if(calc.oreInd)dettaglio+=(dettaglio?' + ':'')+calc.oreInd+'h individuale (€'+calc.tariffaInd+')';
+    if(calc.oreConf)dettaglio+=(dettaglio?' · ':'')+calc.oreConf+'h da confermare';
+    if(calc.quotaIscr)dettaglio+=(dettaglio?' + ':'')+' €20 iscrizione';
     if(!calc.oreFatt&&!calc.oreConf)dettaglio='Nessuna lezione registrata';
     const scontiLabel=s.sconti&&s.sconti.filter(sc=>!sc.meseApplicazione||sc.meseApplicazione===mese).map(sc=>'-'+sc.percentuale+'% '+sc.descrizione).join(', ');
     return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee;font-size:13px">'+
@@ -1793,7 +1800,12 @@ function eseguiGenerazioneMassiva(mese){
     const sid=Number(cb.dataset.sid);
     const s=db.studenti.find(x=>x.id===sid);if(!s)return;
     const calc=calcolaImportoStudente(s,mese);
-    const nota=calc.oreFatt+'h × €'+calc.tariffa+'='+'€'+calc.importo+(calc.quotaIscr?' + €20 iscrizione':'')+(calc.oreNonFatt?' ('+calc.oreNonFatt+'h non fatturate)':'');
+    let nota='';
+    if(calc.oreGruppo)nota+=calc.oreGruppo+'h×€5,50';
+    if(calc.oreInd)nota+=(nota?'+':'')+calc.oreInd+'h×€'+calc.tariffaInd;
+    nota+='=€'+calc.importo;
+    if(calc.quotaIscr)nota+=' +€20 iscr.';
+    if(calc.oreNonFatt)nota+=' ('+calc.oreNonFatt+'h non fatt.)';
     db.pagamenti.push({id:db.nextId++,studenteId:sid,mese:mese,importo:calc.totale,metodo:'',stato:'In attesa',note:nota});
     // Segna quota iscrizione come addebitata
     if(calc.quotaIscr&&s.quotaIscrizione==='pending'){s.quotaIscrizione='billed';}
@@ -1956,11 +1968,12 @@ function salvaAssegnazione(){
   }
   const doc=db.docenti.find(x=>x.id===slot.docenteId);
   const durata=Math.max(0.5,(oraMin(oraF)-oraMin(oraI))/60);
-  db.assegnazioni.push({id:db.nextId++,disponibilitaId:slotId,studenteId:stId,materia,docente:doc?doc.nome+' '+doc.cognome:'',giorno:slot.giorno,oraInizio:oraI,oraFine:oraF,settimana:slot.settimana});
+  db.assegnazioni.push({id:db.nextId++,disponibilitaId:slotId,studenteId:stId,materia,docente:doc?doc.nome+' '+doc.cognome:'',giorno:slot.giorno,oraInizio:oraI,oraFine:oraF,settimana:slot.settimana,tipoLezione:isInd?'individuale':'gruppo'});
   planDirty=true;
   const gi=GIORNI.indexOf(slot.giorno);
   const dataLezione=fmtDate(addDays(currentWeekStart,gi));
-  db.lezioni.push({id:db.nextId++,studenteId:stId,data:dataLezione,orario:`${oraI}–${oraF}`,materia,docente:doc?doc.nome+' '+doc.cognome:'',durata,stato:'Da confermare',note:''});
+  const isInd=document.getElementById('ass-individuale')&&document.getElementById('ass-individuale').checked;
+  db.lezioni.push({id:db.nextId++,studenteId:stId,data:dataLezione,orario:`${oraI}–${oraF}`,materia,docente:doc?doc.nome+' '+doc.cognome:'',durata,stato:'Da confermare',note:'',tipoLezione:isInd?'individuale':'gruppo'});
   saveDb();closeModal();renderAll();
   if(doc)notificaDocenteLezione(doc.nome+' '+doc.cognome,stId,dataLezione,`${oraI}–${oraF}`,materia,false);
 }
@@ -1993,7 +2006,8 @@ function salvaLezione(){
   const data=document.getElementById('l-data').value;
   const materia=document.getElementById('l-materia').value;
   if(!stId||!data||!materia){alert('Compila i campi obbligatori');return;}
-  const nuova={id:db.nextId++,studenteId:stId,data,orario:document.getElementById('l-orario').value.trim(),materia,docente:document.getElementById('l-docente').value,durata:Number(document.getElementById('l-durata').value)||1,stato:document.getElementById('l-stato').value,note:document.getElementById('l-note').value.trim()};
+  const isInd=document.getElementById('l-individuale')&&document.getElementById('l-individuale').checked;
+  const nuova={id:db.nextId++,studenteId:stId,data,orario:document.getElementById('l-orario').value.trim(),materia,docente:document.getElementById('l-docente').value,durata:Number(document.getElementById('l-durata').value)||1,stato:document.getElementById('l-stato').value,note:document.getElementById('l-note').value.trim(),tipoLezione:isInd?'individuale':'gruppo'};
   const recDi=(document.getElementById('l-recupero-di')||{}).value;
   if(recDi)nuova.recuperoDi=Number(recDi);
   db.lezioni.push(nuova);
