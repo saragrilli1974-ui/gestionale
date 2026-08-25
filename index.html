@@ -1956,9 +1956,17 @@ function salvaAssegnazione(){
   if(!slotId||!stId||!materia||!orarioVal){alert('Compila tutti i campi');return;}
   const slot=db.disponibilita.find(x=>x.id===slotId);if(!slot){alert('Slot non trovato');return;}
   const [oraI,oraF]=orarioVal.split('|');
-  // Capienza: conta gli studenti già presenti nello slot in orari che si sovrappongono a quello scelto
-  const nAss=db.assegnazioni.filter(a=>a.disponibilitaId===slotId&&a.oraInizio<oraF&&oraI<a.oraFine).length;
-  if(nAss>=MAX_ST){if(!confirm(`In questa fascia oraria ci sono già ${MAX_ST} studenti. Continuare?`))return;}
+  const isInd=document.getElementById('ass-individuale')&&document.getElementById('ass-individuale').checked;
+  // Assegnazioni nello stesso slot e orario sovrapposto
+  const assStessoSlot=db.assegnazioni.filter(a=>a.disponibilitaId===slotId&&a.oraInizio<oraF&&oraI<a.oraFine);
+  const nAss=assStessoSlot.length;
+  // Blocco individuale: se sto inserendo una individuale, lo slot deve essere vuoto in quell'orario
+  if(isInd&&nAss>0){alert('Impossibile: in questa fascia oraria ci sono già altri studenti. Una lezione individuale richiede lo slot libero.');return;}
+  // Blocco inverso: se c'è già una individuale in quell'orario, non posso aggiungere nessuno
+  const indEsistente=assStessoSlot.find(a=>a.tipoLezione==='individuale');
+  if(indEsistente){const sInd=db.studenti.find(x=>x.id===indEsistente.studenteId);alert('Impossibile: in questa fascia oraria c\'è già una lezione individuale con '+(sInd?sInd.nome+' '+sInd.cognome:'uno studente')+'.');return;}
+  // Capienza gruppo
+  if(!isInd&&nAss>=MAX_ST){if(!confirm(`In questa fascia oraria ci sono già ${MAX_ST} studenti. Continuare?`))return;}
   // Controllo sovrapposizione oraria: stesso studente, stessa settimana, stesso giorno, orari che si intersecano
   const altreAssegnazioni=db.assegnazioni.filter(a=>a.studenteId===stId&&a.settimana===slot.settimana&&a.giorno===slot.giorno);
   const sovrapposta=altreAssegnazioni.find(a=>a.oraInizio<oraF&&oraI<a.oraFine);
@@ -1972,7 +1980,6 @@ function salvaAssegnazione(){
   planDirty=true;
   const gi=GIORNI.indexOf(slot.giorno);
   const dataLezione=fmtDate(addDays(currentWeekStart,gi));
-  const isInd=document.getElementById('ass-individuale')&&document.getElementById('ass-individuale').checked;
   db.lezioni.push({id:db.nextId++,studenteId:stId,data:dataLezione,orario:`${oraI}–${oraF}`,materia,docente:doc?doc.nome+' '+doc.cognome:'',durata,stato:'Da confermare',note:'',tipoLezione:isInd?'individuale':'gruppo'});
   saveDb();closeModal();renderAll();
   if(doc)notificaDocenteLezione(doc.nome+' '+doc.cognome,stId,dataLezione,`${oraI}–${oraF}`,materia,false);
