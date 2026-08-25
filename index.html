@@ -654,7 +654,7 @@ function apriDettaglio(id){
     </div>
     <div class="grid3" style="margin-bottom:1.25rem">
       <div class="metric-card"><div class="metric-label">Ore totali tenute</div><div class="metric-value">${totOre}h</div></div>
-      <div class="metric-card"><div class="metric-label">Canone mensile</div><div class="metric-value">${s.tipo==='prova'?'Gratuito':(p&&p.prezzo>0?'€'+p.prezzo:(s.tariffaOraria?'€'+s.tariffaOraria+'/h':'€18/h'))}</div>${s.sconti&&s.sconti.length?'<div style="font-size:11px;color:#7c3aed;margin-top:2px">'+s.sconti.map(sc=>sc.descrizione+' -'+sc.percentuale+'%'+(sc.meseApplicazione?' ('+sc.meseApplicazione+')':'')).join(', ')+'</div>':''}${s.quotaIscrizione==='pending'?'<div style="font-size:11px;color:#e67e22;margin-top:2px">+€20 iscrizione da addebitare</div>':''}</div>
+      <div class="metric-card"><div class="metric-label">Tariffa oraria</div><div class="metric-value">${s.tipo==='prova'?'Gratuito':(s.piano==='ind'?'€'+(s.tariffaOraria||18)+'/h (individuale)':'€5,50/h (gruppo)')}</div>${s.sconti&&s.sconti.length?'<div style="font-size:11px;color:#7c3aed;margin-top:2px">'+s.sconti.map(sc=>sc.descrizione+' -'+sc.percentuale+'%'+(sc.meseApplicazione?' ('+sc.meseApplicazione+')':'')).join(', ')+'</div>':''}${s.quotaIscrizione==='pending'?'<div style="font-size:11px;color:#e67e22;margin-top:2px">+€20 iscrizione da addebitare</div>':''}</div>
       <div class="metric-card"><div class="metric-label">Lezioni totali</div><div class="metric-value">${lezioni.length}</div></div>
     </div>
     <div class="card">
@@ -1729,16 +1729,15 @@ function meseCorrente(){const d=new Date();return d.getFullYear()+'-'+String(d.g
 function labelMese(m){const [a,mm]=m.split('-');const nomi=['','Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];return (nomi[Number(mm)]||mm)+' '+a;}
 
 function calcolaImportoStudente(s,mese){
-  const p=PIANI.find(x=>x.id===s.piano);
-  let importo=0;
-  if(p&&p.prezzo>0){
-    importo=p.prezzo;
-  } else if(s.piano==='ind'){
-    const tariffa=s.tariffaOraria||18;
-    const lezMese=db.lezioni.filter(l=>l.studenteId===s.id&&l.data.startsWith(mese));
-    const ore=lezMese.reduce((a,l)=>a+(Number(l.durata)||1),0);
-    importo=tariffa*ore;
-  }
+  const tariffa=s.piano==='ind'?(s.tariffaOraria||18):5.50;
+  const lezMese=db.lezioni.filter(l=>l.studenteId===s.id&&l.data.startsWith(mese));
+  const fatturabili=lezMese.filter(l=>l.stato==='Tenuta'||l.stato==='Assente');
+  const nonFatturabili=lezMese.filter(l=>l.stato==='Assente giustificata'||l.stato==='Docente assente');
+  const daConfermare=lezMese.filter(l=>l.stato==='Da confermare');
+  const oreFatt=fatturabili.reduce((a,l)=>a+(Number(l.durata)||1),0);
+  const oreNonFatt=nonFatturabili.reduce((a,l)=>a+(Number(l.durata)||1),0);
+  const oreConf=daConfermare.reduce((a,l)=>a+(Number(l.durata)||1),0);
+  let importo=tariffa*oreFatt;
   // Applica sconti
   if(s.sconti&&s.sconti.length){
     s.sconti.forEach(sc=>{
@@ -1751,7 +1750,7 @@ function calcolaImportoStudente(s,mese){
   // Quota iscrizione
   let quotaIscr=0;
   if(s.quotaIscrizione==='pending')quotaIscr=20;
-  return {importo,quotaIscr,totale:importo+quotaIscr};
+  return {importo,quotaIscr,totale:importo+quotaIscr,oreFatt,oreNonFatt,oreConf,tariffa,totLezioni:lezMese.length};
 }
 
 function apriGenerazioneMassiva(){
@@ -1763,8 +1762,10 @@ function apriGenerazioneMassiva(){
   let righe=daGenerare.map(s=>{
     const calc=calcolaImportoStudente(s,mese);
     const p=PIANI.find(x=>x.id===s.piano);
-    let dettaglio=p&&p.prezzo>0?p.label:'Individuale ('+((s.tariffaOraria||18))+'€/h)';
+    let dettaglio=calc.oreFatt+'h × €'+calc.tariffa+(s.piano==='ind'?' (ind)':' (gruppo)');
+    if(calc.oreConf)dettaglio+=' · '+calc.oreConf+'h da confermare';
     if(calc.quotaIscr)dettaglio+=' + €20 iscrizione';
+    if(!calc.oreFatt&&!calc.oreConf)dettaglio='Nessuna lezione registrata';
     const scontiLabel=s.sconti&&s.sconti.filter(sc=>!sc.meseApplicazione||sc.meseApplicazione===mese).map(sc=>'-'+sc.percentuale+'% '+sc.descrizione).join(', ');
     return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee;font-size:13px">'+
       '<input type="checkbox" checked data-sid="'+s.id+'" class="gen-check">'+
@@ -1792,7 +1793,8 @@ function eseguiGenerazioneMassiva(mese){
     const sid=Number(cb.dataset.sid);
     const s=db.studenti.find(x=>x.id===sid);if(!s)return;
     const calc=calcolaImportoStudente(s,mese);
-    db.pagamenti.push({id:db.nextId++,studenteId:sid,mese:mese,importo:calc.totale,metodo:'',stato:'In attesa',note:calc.quotaIscr?'Inclusa quota iscrizione €20':''});
+    const nota=calc.oreFatt+'h × €'+calc.tariffa+'='+'€'+calc.importo+(calc.quotaIscr?' + €20 iscrizione':'')+(calc.oreNonFatt?' ('+calc.oreNonFatt+'h non fatturate)':'');
+    db.pagamenti.push({id:db.nextId++,studenteId:sid,mese:mese,importo:calc.totale,metodo:'',stato:'In attesa',note:nota});
     // Segna quota iscrizione come addebitata
     if(calc.quotaIscr&&s.quotaIscrizione==='pending'){s.quotaIscrizione='billed';}
     // Rimuovi sconti one-shot applicati
