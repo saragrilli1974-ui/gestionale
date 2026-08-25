@@ -1218,7 +1218,7 @@ function updateFiltroStudente(){
   if(cur)sel.value=cur;
 }
 
-function pianiOpt(sel){return PIANI.map(p=>`<option value="${p.id}"${sel===p.id?' selected':''}>${p.label}${p.prezzo>0?' — €'+p.prezzo+'/mese':' — €18/lez'}</option>`).join('');}
+function pianiOpt(sel){return PIANI.map(p=>`<option value="${p.id}"${sel===p.id?' selected':''}>${p.label}</option>`).join('');}
 
 /* ===== REGISTRO PRESENZE E RECUPERI ===== */
 function oggiStr(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
