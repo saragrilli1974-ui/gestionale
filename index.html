@@ -845,8 +845,19 @@ function generaRicevutaPDF(pagamentoId){
 }
   function generaPlanningPDF(id){
   const s=db.studenti.find(x=>x.id===id);if(!s)return;
-  const wk=fmtDate(currentWeekStart);
-  // Trova le lezioni della settimana corrente per questo studente, dalle assegnazioni in pianificazione
+  // Trova tutte le settimane con assegnazioni per questo studente
+  const settimane=[...new Set(db.assegnazioni.filter(a=>a.studenteId===id).map(a=>a.settimana))].sort();
+  let wk;
+  if(!settimane.length){alert('Nessuna assegnazione trovata per questo studente.');return;}
+  if(settimane.length===1){wk=settimane[0];}
+  else{
+    const opzioni=settimane.map((w,i)=>{const d=new Date(w);const fine=addDays(d,4);return `${i+1}) ${fmtDateIT(d)} - ${fmtDateIT(fine)}`;}).join('\n');
+    const scelta=prompt(`Scegli la settimana per il planning di ${s.nome} ${s.cognome}:\n\n${opzioni}\n\nInserisci il numero:`);
+    if(!scelta)return;
+    const idx=Number(scelta)-1;
+    if(isNaN(idx)||idx<0||idx>=settimane.length){alert('Scelta non valida.');return;}
+    wk=settimane[idx];
+  }
   const assStud=db.assegnazioni.filter(a=>a.studenteId===id&&a.settimana===wk);
   // Ordina per giorno (Lun-Ven) poi ora
   const ordineGiorni=GIORNI;
@@ -879,8 +890,9 @@ function generaRicevutaPDF(pagamentoId){
   doc.setFontSize(10);
   doc.setFont(undefined,'normal');
   doc.setTextColor(100,100,100);
-  const fine=addDays(currentWeekStart,4);
-  doc.text(`Settimana ${fmtDateIT(currentWeekStart)} - ${fmtDateIT(fine)}`, 14, 47);
+  const wkDate=new Date(wk);
+  const fine=addDays(wkDate,4);
+  doc.text(`Settimana ${fmtDateIT(wkDate)} - ${fmtDateIT(fine)}`, 14, 47);
 
   // Tabella
   let y = 60;
