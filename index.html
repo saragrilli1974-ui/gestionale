@@ -917,7 +917,7 @@ function generaRicevutaPDF(pagamentoId){
     assStud.forEach((a,i)=>{
       if(i%2===0){
         doc.setFillColor(250,250,248);
-        doc.rect(14, y-5, pageWidth-28, 8, 'F');
+        doc.rect(14, y-5, pageWidth-28, 14, 'F');
       }
       doc.setFont(undefined,'bold');
       doc.setTextColor(30,30,30);
@@ -927,7 +927,16 @@ function generaRicevutaPDF(pagamentoId){
       doc.text(`${a.oraInizio}-${a.oraFine}`, 60, y);
       doc.text(a.materia, 95, y);
       doc.text(a.docente||'-', 150, y);
-      y += 8;
+      // Link Meet del docente
+      const docObj=db.docenti.find(d=>`${d.nome} ${d.cognome}`===a.docente);
+      if(docObj&&docObj.linkMeet){
+        y+=5;
+        doc.setFontSize(7.5);
+        doc.setTextColor(79,70,229);
+        doc.text(docObj.linkMeet, 60, y);
+        doc.setFontSize(9.5);
+      }
+      y += 9;
     });
   }
 
