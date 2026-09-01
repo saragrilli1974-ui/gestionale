@@ -1980,7 +1980,8 @@ function salvaAssegnazione(){
   planDirty=true;
   const gi=GIORNI.indexOf(slot.giorno);
   const dataLezione=fmtDate(addDays(currentWeekStart,gi));
-  db.lezioni.push({id:db.nextId++,studenteId:stId,data:dataLezione,orario:`${oraI}–${oraF}`,materia,docente:doc?doc.nome+' '+doc.cognome:'',durata,stato:'Da confermare',note:'',tipoLezione:isInd?'individuale':'gruppo'});
+  const lezEsiste=db.lezioni.find(l=>l.studenteId===stId&&l.data===dataLezione&&l.orario===`${oraI}–${oraF}`);
+  if(!lezEsiste) db.lezioni.push({id:db.nextId++,studenteId:stId,data:dataLezione,orario:`${oraI}–${oraF}`,materia,docente:doc?doc.nome+' '+doc.cognome:'',durata,stato:'Da confermare',note:'',tipoLezione:isInd?'individuale':'gruppo'});
   saveDb();closeModal();renderAll();
   if(doc)notificaDocenteLezione(doc.nome+' '+doc.cognome,stId,dataLezione,`${oraI}–${oraF}`,materia,false);
 }
@@ -2017,6 +2018,8 @@ function salvaLezione(){
   const nuova={id:db.nextId++,studenteId:stId,data,orario:document.getElementById('l-orario').value.trim(),materia,docente:document.getElementById('l-docente').value,durata:Number(document.getElementById('l-durata').value)||1,stato:document.getElementById('l-stato').value,note:document.getElementById('l-note').value.trim(),tipoLezione:isInd?'individuale':'gruppo'};
   const recDi=(document.getElementById('l-recupero-di')||{}).value;
   if(recDi)nuova.recuperoDi=Number(recDi);
+  const dupLez=db.lezioni.find(l=>l.studenteId===stId&&l.data===data&&l.orario===nuova.orario);
+  if(dupLez){alert('Esiste già una lezione per questo studente in questa data e orario.');return;}
   db.lezioni.push(nuova);
   saveDb();closeModal();renderAll();
   if(nuova.docente)notificaDocenteLezione(nuova.docente,stId,data,nuova.orario||'da definire',materia,!!nuova.recuperoDi);
