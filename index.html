@@ -651,7 +651,7 @@ function apriDettaglio(id){
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:1.5rem;flex-wrap:wrap">
       <div class="avatar ${avColor(s.id)}" style="width:48px;height:48px;font-size:16px">${initials(s.nome,s.cognome)}</div>
       <div style="flex:1"><div style="font-size:20px;font-weight:600">${s.nome} ${s.cognome}</div><div style="font-size:13px;color:#9b9a94">${s.livello&&s.livello!=='superiori'?'<span class="badge blue">'+(s.livello==='elementari'?'Elementari':'Medie')+'</span> ':''}${s.tipo==='prova'?'Settimana gratuita':(p?p.label:'—')} · ${s.tipo==='prova'?'<span class="badge purple">In prova</span>':(s.attivo===false?'<span class="badge gray">Inattivo</span>':'<span class="badge green">Iscritto</span>')}</div></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">${s.tipo==='prova'?`<button class="btn" style="background:#7c3aed;color:#fff;border-color:#7c3aed" onclick="confermaIscrizione(${s.id})"><i class="ti ti-user-check"></i> Conferma iscrizione</button>`:''}<button class="btn primary" onclick="openModal('assegna-da-studente',${s.id})"><i class="ti ti-calendar-plus"></i> Assegna lezioni</button><button class="btn success" onclick="generaPlanningPDF(${s.id})"><i class="ti ti-file-download"></i> Planning PDF</button><button class="btn" style="background:#25D366;color:#fff;border-color:#25D366" onclick="apriWhatsApp(${s.id})"><i class="ti ti-brand-whatsapp"></i> WhatsApp</button><button class="btn" onclick="openModal('modifica-studente',${s.id})"><i class="ti ti-edit"></i> Modifica</button><button class="btn danger" onclick="eliminaStudente(${s.id})"><i class="ti ti-trash"></i></button></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${s.tipo==='prova'?`<button class="btn" style="background:#7c3aed;color:#fff;border-color:#7c3aed" onclick="confermaIscrizione(${s.id})"><i class="ti ti-user-check"></i> Conferma iscrizione</button>`:''}<button class="btn primary" onclick="openModal('assegna-da-studente',${s.id})"><i class="ti ti-calendar-plus"></i> Assegna lezioni</button><button class="btn" onclick="duplicaSettimanaStudente(${s.id})"><i class="ti ti-copy"></i> Duplica sett. →</button><button class="btn success" onclick="generaPlanningPDF(${s.id})"><i class="ti ti-file-download"></i> Planning PDF</button><button class="btn" style="background:#25D366;color:#fff;border-color:#25D366" onclick="apriWhatsApp(${s.id})"><i class="ti ti-brand-whatsapp"></i> WhatsApp</button><button class="btn" onclick="openModal('modifica-studente',${s.id})"><i class="ti ti-edit"></i> Modifica</button><button class="btn danger" onclick="eliminaStudente(${s.id})"><i class="ti ti-trash"></i></button></div>
     </div>
     <div class="grid3" style="margin-bottom:1.25rem">
       <div class="metric-card"><div class="metric-label">Ore totali tenute</div><div class="metric-value">${totOre}h</div></div>
@@ -1152,17 +1152,20 @@ function duplicaSettimana(){
   const assNew=db.assegnazioni.filter(a=>a.settimana===wkNew);
   if(assNew.length){if(!confirm(`La settimana ${fmtDateIT(nextMon)} – ${fmtDateIT(addDays(nextMon,4))} ha già ${assNew.length} assegnazion${assNew.length===1?'e':'i'}.\n\nVuoi aggiungere comunque le assegnazioni duplicate? (le eventuali sovrapposizioni verranno saltate)`))return;}
   else{if(!confirm(`Duplicare ${assOld.length} assegnazion${assOld.length===1?'e':'i'} nella settimana ${fmtDateIT(nextMon)} – ${fmtDateIT(addDays(nextMon,4))}?`))return;}
-  /* Mappa vecchio slotId → nuovo slotId */
+  /* Mappa vecchio slotId → nuovo slotId (solo se la disponibilità esiste già) */
   const slotMap={};
+  const mancanti=[];
   dispOld.forEach(d=>{
-    /* Cerca se esiste già uno slot identico nella settimana nuova */
     let exists=db.disponibilita.find(x=>x.docenteId===d.docenteId&&x.giorno===d.giorno&&x.oraInizio===d.oraInizio&&x.oraFine===d.oraFine&&x.settimana===wkNew);
-    if(!exists){
-      exists={id:db.nextId++,docenteId:d.docenteId,giorno:d.giorno,oraInizio:d.oraInizio,oraFine:d.oraFine,settimana:wkNew,materie:d.materie?[...d.materie]:[]};
-      db.disponibilita.push(exists);
+    if(exists){slotMap[d.id]=exists.id;}
+    else{
+      slotMap[d.id]=null;
+      const doc=db.docenti.find(x=>x.id===d.docenteId);
+      mancanti.push(`${doc?doc.nome+' '+doc.cognome:'?'} — ${d.giorno} ${d.oraInizio}-${d.oraFine}`);
     }
-    slotMap[d.id]=exists.id;
   });
+  if(mancanti.length&&Object.values(slotMap).every(v=>v===null)){alert(`Impossibile duplicare: nessun docente ha inserito la disponibilità per la settimana ${fmtDateIT(nextMon)} – ${fmtDateIT(addDays(nextMon,4))}.\n\nMancano:\n• `+[...new Set(mancanti)].join('\n• '));return;}
+  if(mancanti.length&&!confirm(`Alcune disponibilità non esistono nella settimana di destinazione:\n\n• ${[...new Set(mancanti)].join('\n• ')}\n\nLe assegnazioni su quegli slot verranno saltate. Continuare?`))return;
   let duplicati=0,saltati=0;
   assOld.forEach(a=>{
     const newSlotId=slotMap[a.disponibilitaId];
@@ -2155,6 +2158,64 @@ function adsApriDocente(stId,docId){
   detail.innerHTML=html;
   detail.style.display='block';
   btn.style.display='';
+}
+
+function duplicaSettimanaStudente(stId){
+  const s=db.studenti.find(x=>x.id===stId);if(!s)return;
+  /* Trova tutte le settimane con assegnazioni per questo studente */
+  const settimane=[...new Set(db.assegnazioni.filter(a=>a.studenteId===stId).map(a=>a.settimana))].sort();
+  if(!settimane.length){alert('Nessuna assegnazione trovata per questo studente.');return;}
+  let wkOld;
+  if(settimane.length===1){wkOld=settimane[0];}
+  else{
+    const opz=settimane.map((w,i)=>{const d=new Date(w);return `${i+1}) ${fmtDateIT(d)} – ${fmtDateIT(addDays(d,4))}`;}).join('\n');
+    const sc=prompt(`Da quale settimana vuoi duplicare le lezioni di ${s.nome} ${s.cognome}?\n\n${opz}\n\nInserisci il numero:`);
+    if(!sc)return;
+    const idx=Number(sc)-1;
+    if(isNaN(idx)||idx<0||idx>=settimane.length){alert('Scelta non valida.');return;}
+    wkOld=settimane[idx];
+  }
+  const nextMon=addDays(new Date(wkOld),7);
+  const wkNew=fmtDate(nextMon);
+  const assOld=db.assegnazioni.filter(a=>a.studenteId===stId&&a.settimana===wkOld);
+  if(!assOld.length){alert('Nessuna assegnazione in questa settimana.');return;}
+  const assNew=db.assegnazioni.filter(a=>a.studenteId===stId&&a.settimana===wkNew);
+  if(assNew.length&&!confirm(`${s.nome} ha già ${assNew.length} lezioni nella settimana ${fmtDateIT(nextMon)} – ${fmtDateIT(addDays(nextMon,4))}.\nVuoi aggiungere comunque?`))return;
+  if(!assNew.length&&!confirm(`Duplicare ${assOld.length} lezioni di ${s.nome} ${s.cognome} nella settimana ${fmtDateIT(nextMon)} – ${fmtDateIT(addDays(nextMon,4))}?`))return;
+  const slotMap={};
+  const mancanti=[];
+  assOld.forEach(a=>{
+    if(slotMap[a.disponibilitaId]!==undefined)return;
+    const oldSlot=db.disponibilita.find(d=>d.id===a.disponibilitaId);
+    if(!oldSlot){slotMap[a.disponibilitaId]=null;return;}
+    const exists=db.disponibilita.find(x=>x.docenteId===oldSlot.docenteId&&x.giorno===oldSlot.giorno&&x.oraInizio<=a.oraInizio&&x.oraFine>=a.oraFine&&x.settimana===wkNew);
+    if(exists){slotMap[a.disponibilitaId]=exists.id;}
+    else{
+      slotMap[a.disponibilitaId]=null;
+      const doc=db.docenti.find(x=>x.id===oldSlot.docenteId);
+      mancanti.push(`${a.giorno} ${a.oraInizio}-${a.oraFine} (${doc?doc.nome+' '+doc.cognome:'?'})`);
+    }
+  });
+  if(mancanti.length===assOld.length){alert(`Impossibile duplicare: nessun docente ha la disponibilità nella settimana ${fmtDateIT(nextMon)} – ${fmtDateIT(addDays(nextMon,4))}.\n\nMancano:\n• `+[...new Set(mancanti)].join('\n• '));return;}
+  if(mancanti.length&&!confirm(`Alcune lezioni non possono essere duplicate perché il docente non ha disponibilità:\n\n• ${[...new Set(mancanti)].join('\n• ')}\n\nVuoi duplicare le restanti?`))return;
+  let ok=0,saltati=0;
+  assOld.forEach(a=>{
+    const newSlotId=slotMap[a.disponibilitaId];
+    if(!newSlotId){saltati++;return;}
+    if(db.assegnazioni.find(x=>x.disponibilitaId===newSlotId&&x.studenteId===stId&&x.oraInizio===a.oraInizio&&x.oraFine===a.oraFine&&x.settimana===wkNew)){saltati++;return;}
+    db.assegnazioni.push({id:db.nextId++,disponibilitaId:newSlotId,studenteId:stId,materia:a.materia,docente:a.docente,giorno:a.giorno,oraInizio:a.oraInizio,oraFine:a.oraFine,settimana:wkNew,tipoLezione:a.tipoLezione||'gruppo'});
+    const gi=GIORNI.indexOf(a.giorno);
+    const dataLez=fmtDate(addDays(nextMon,gi));
+    const durata=Math.max(0.5,(oraMin(a.oraFine)-oraMin(a.oraInizio))/60);
+    if(!db.lezioni.find(l=>l.studenteId===stId&&l.data===dataLez&&l.orario===`${a.oraInizio}–${a.oraFine}`))
+      db.lezioni.push({id:db.nextId++,studenteId:stId,data:dataLez,orario:`${a.oraInizio}–${a.oraFine}`,materia:a.materia,docente:a.docente,durata,stato:'Da confermare',note:'',tipoLezione:a.tipoLezione||'gruppo'});
+    ok++;
+  });
+  if(ok){dispDirty=true;planDirty=true;saveDb();}
+  renderAll();apriDettaglio(stId);
+  let msg=ok?`${ok} lezioni duplicate nella settimana ${fmtDateIT(nextMon)} – ${fmtDateIT(addDays(nextMon,4))}.`:'Nessuna lezione duplicata.';
+  if(saltati)msg+=`\n(${saltati} saltate: disponibilità mancante o già presenti)`;
+  alert(msg);
 }
 
 function salvaAssegnazioneDaStudente(stId){
