@@ -1668,53 +1668,19 @@ function openModal(tipo,arg){
     </div></div>`;
   } else if(tipo==='assegna-da-studente'){
     const stud=db.studenti.find(x=>x.id===arg);
-    const wk=fmtDate(currentWeekStart);
-    const dispSett=db.disponibilita.filter(d=>d.settimana===wk);
-    /* Costruisci griglia giorno per giorno */
-    let slotsHtml='';
-    GIORNI.slice(0,5).forEach((giorno,gi)=>{
-      const slots=dispSett.filter(d=>d.giorno===giorno);
-      if(!slots.length)return;
-      const dataG=fmtDate(addDays(currentWeekStart,gi)).split('-').slice(1).reverse().join('/');
-      slotsHtml+=`<div style="font-weight:600;font-size:13px;margin:10px 0 4px;color:#6b6a65">${giorno} ${dataG}</div>`;
-      slots.forEach(slot=>{
-        const doc=db.docenti.find(x=>x.id===slot.docenteId);
-        const docNome=doc?doc.nome+' '+doc.cognome:'?';
-        const mat=slot.materie&&slot.materie.length?slot.materie:TUTTE_MATERIE;
-        /* Sub-slot da 30min e 1h */
-        const hI=oraMin(slot.oraInizio),hF=oraMin(slot.oraFine);
-        const fmt=m=>{const h=Math.floor(m/60),mm=m%60;return (h<10?'0'+h:h)+':'+(mm<10?'0'+mm:mm);};
-        let subSlots=[];
-        for(let m=hI;m+60<=hF;m+=30)subSlots.push({oI:fmt(m),oF:fmt(m+60),label:`${fmt(m)}–${fmt(m+60)} (1h)`});
-        for(let m=hI;m+30<=hF;m+=30)subSlots.push({oI:fmt(m),oF:fmt(m+30),label:`${fmt(m)}–${fmt(m+30)} (30min)`});
-        if(hF-hI>60)subSlots.push({oI:slot.oraInizio,oF:slot.oraFine,label:`${slot.oraInizio}–${slot.oraFine} (tutto)`});
-        /* Rimuovi duplicati */
-        const seen=new Set();subSlots=subSlots.filter(x=>{const k=x.oI+x.oF;if(seen.has(k))return false;seen.add(k);return true;});
-        subSlots.forEach(sub=>{
-          /* Conta occupazione in questo sub-slot */
-          const assHere=db.assegnazioni.filter(a=>a.disponibilitaId===slot.id&&a.oraInizio<sub.oF&&sub.oI<a.oraFine);
-          const pieno=assHere.length>=MAX_ST;
-          const giaAss=assHere.some(a=>a.studenteId===arg);
-          const colore=giaAss?'background:#e8f5e9':pieno?'background:#fee;opacity:.6':'';
-          const matOpts=mat.map(m=>`<option>${m}</option>`).join('');
-          slotsHtml+=`<div class="ads-slot" style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;margin-bottom:3px;font-size:13px;flex-wrap:wrap;${colore}">
-            <input type="checkbox" class="ads-check" data-slot="${slot.id}" data-oi="${sub.oI}" data-of="${sub.oF}" data-doc="${docNome}" data-giorno="${giorno}" ${giaAss?'disabled checked':pieno?'disabled':''} style="width:16px;height:16px">
-            <span style="min-width:130px;font-weight:500">${sub.label}</span>
-            <span style="color:#6b6a65">${docNome}</span>
-            <select class="ads-mat" style="padding:4px 6px;border:1px solid #d4d2cc;border-radius:6px;font-size:12px;font-family:inherit">${matOpts}</select>
-            <span class="badge ${assHere.length>=MAX_ST?'red':assHere.length>=MAX_ST-1?'amber':'green'}" style="font-size:10px">${assHere.length}/${MAX_ST}</span>
-            ${giaAss?'<span style="font-size:11px;color:#2e7d32">✓ già assegnato</span>':''}
-          </div>`;
-        });
-      });
-    });
-    if(!slotsHtml)slotsHtml='<div class="empty">Nessuno slot disponibile questa settimana. Crea prima le disponibilità dei docenti nella Pianificazione.</div>';
+    /* Genera opzioni settimane: corrente + 7 successive */
+    let settOpts='';
+    for(let i=0;i<8;i++){const mon=addDays(currentWeekStart,i*7);const wkV=fmtDate(mon);settOpts+=`<option value="${wkV}"${i===0?' selected':''}>${fmtDateIT(mon)} – ${fmtDateIT(addDays(mon,4))}</option>`;}
     html=`<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal" style="max-width:700px"><h2>Assegna lezioni — ${stud?stud.nome+' '+stud.cognome:''}</h2>
-      <p style="font-size:13px;color:#6b6a65;margin:0 0 8px">Settimana ${fmtDateIT(currentWeekStart)} – ${fmtDateIT(addDays(currentWeekStart,4))}. Spunta gli slot da assegnare.</p>
-      <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="ads-individuale" style="width:16px;height:16px"> Lezione individuale</label></div>
-      <div style="max-height:55vh;overflow-y:auto">${slotsHtml}</div>
-      <div class="modal-footer"><button class="btn" onclick="closeModal()">Annulla</button><button class="btn primary" onclick="salvaAssegnazioneDaStudente(${arg})"><i class="ti ti-check"></i> Assegna selezionati</button></div>
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+        <div class="field" style="flex:1;margin:0"><label>Settimana</label><select id="ads-settimana" onchange="adsRenderDocenti(${arg})" style="width:100%;padding:8px 10px;border:1px solid #d4d2cc;border-radius:8px;font-size:13px;font-family:inherit">${settOpts}</select></div>
+        <div class="field" style="margin:0"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap"><input type="checkbox" id="ads-individuale" style="width:16px;height:16px"> Individuale</label></div>
+      </div>
+      <div id="ads-docenti-list"></div>
+      <div id="ads-slots-detail" style="display:none"></div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal()">Annulla</button><button class="btn primary" id="ads-btn-salva" onclick="salvaAssegnazioneDaStudente(${arg})" style="display:none"><i class="ti ti-check"></i> Assegna selezionati</button></div>
     </div></div>`;
+    setTimeout(()=>adsRenderDocenti(arg),50);
   } else if(tipo==='nuovo-pagamento'){
     const studOpt=db.studenti.map(s=>`<option value="${s.id}"${arg===s.id?' selected':''}>${s.nome} ${s.cognome}</option>`).join('');
     const meseOpts=(()=>{const mesi=['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];const now=new Date();let o='';for(let i=-3;i<=4;i++){const d=new Date(now.getFullYear(),now.getMonth()+i,1);const v=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;o+=`<option value="${v}"${i===0?' selected':''}>${mesi[d.getMonth()]} ${d.getFullYear()}</option>`;}return o;})();
@@ -1842,7 +1808,6 @@ function aggiornaOrarioAss(){
   const hI=oraMin(slot.oraInizio),hF=oraMin(slot.oraFine);
   const fmt=m=>{const h=Math.floor(m/60),mm=m%60;return (h<10?'0'+h:h)+':'+(mm<10?'0'+mm:mm);};
   let opts='';
-  for(let m=hI;m<hF;m+=30){opts+=`<option value="${fmt(m)}|${fmt(m+30)}">${fmt(m)}–${fmt(m+30)} (30 min)</option>`;}
   for(let m=hI;m+60<=hF;m+=30){opts+=`<option value="${fmt(m)}|${fmt(m+60)}">${fmt(m)}–${fmt(m+60)} (1 ora)</option>`;}
   const tot=(hF-hI)/60;
   if(hF-hI>60)opts+=`<option value="${slot.oraInizio}|${slot.oraFine}">Tutto lo slot ${slot.oraInizio}–${slot.oraFine} (${tot% 1===0?tot:tot.toFixed(1)} ore)</option>`;
@@ -2109,12 +2074,91 @@ function salvaAssegnazione(){
   if(doc)notificaDocenteLezione(doc.nome+' '+doc.cognome,stId,dataLezione,`${oraI}–${oraF}`,materia,false);
 }
 
+/* === Assegna da studente: Step 1 lista docenti, Step 2 slot === */
+function adsRenderDocenti(stId){
+  const wk=document.getElementById('ads-settimana').value;
+  const cont=document.getElementById('ads-docenti-list');
+  const detail=document.getElementById('ads-slots-detail');
+  const btn=document.getElementById('ads-btn-salva');
+  if(detail)detail.style.display='none';
+  if(btn)btn.style.display='none';
+  const dispSett=db.disponibilita.filter(d=>d.settimana===wk);
+  /* Docenti unici che hanno disponibilità questa settimana */
+  const docIds=[...new Set(dispSett.map(d=>d.docenteId))];
+  if(!docIds.length){cont.innerHTML='<div class="empty">Nessun docente con disponibilità in questa settimana.</div>';return;}
+  cont.innerHTML=docIds.map(did=>{
+    const doc=db.docenti.find(x=>x.id===did);if(!doc)return'';
+    const slots=dispSett.filter(d=>d.docenteId===did);
+    const giorni=[...new Set(slots.map(s=>s.giorno))];
+    const materie=[...new Set(slots.flatMap(s=>s.materie||[]))];
+    const nAss=db.assegnazioni.filter(a=>a.settimana===wk&&slots.some(s=>s.id===a.disponibilitaId)).length;
+    return `<div onclick="adsApriDocente(${stId},${did})" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;margin-bottom:4px;cursor:pointer;background:#fafaf8;transition:background .15s" onmouseover="this.style.background='#f0efeb'" onmouseout="this.style.background='#fafaf8'">
+      <div class="avatar ${avColor(did)}" style="width:36px;height:36px;font-size:12px">${initials(doc.nome,doc.cognome)}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:14px">${doc.nome} ${doc.cognome}</div>
+        <div style="font-size:12px;color:#9b9a94">${giorni.join(', ')}${materie.length?' · '+materie.slice(0,3).join(', '):''}${materie.length>3?' …':''}</div>
+      </div>
+      <span class="badge green" style="font-size:11px">${slots.length} slot</span>
+      <i class="ti ti-chevron-right" style="color:#9b9a94"></i>
+    </div>`;
+  }).join('');
+}
+
+function adsApriDocente(stId,docId){
+  const wk=document.getElementById('ads-settimana').value;
+  const wkDate=new Date(wk);
+  const doc=db.docenti.find(x=>x.id===docId);
+  const cont=document.getElementById('ads-docenti-list');
+  const detail=document.getElementById('ads-slots-detail');
+  const btn=document.getElementById('ads-btn-salva');
+  /* Intestazione con pulsante indietro */
+  let html=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+    <button class="btn sm" onclick="adsRenderDocenti(${stId});document.getElementById('ads-slots-detail').style.display='none';document.getElementById('ads-docenti-list').style.display='block';document.getElementById('ads-btn-salva').style.display='none'"><i class="ti ti-arrow-left"></i></button>
+    <div class="avatar ${avColor(docId)}" style="width:28px;height:28px;font-size:10px">${initials(doc.nome,doc.cognome)}</div>
+    <span style="font-weight:600;font-size:14px">${doc.nome} ${doc.cognome}</span>
+  </div>`;
+  const dispDoc=db.disponibilita.filter(d=>d.docenteId===docId&&d.settimana===wk);
+  GIORNI.slice(0,5).forEach((giorno,gi)=>{
+    const slots=dispDoc.filter(d=>d.giorno===giorno);
+    if(!slots.length)return;
+    const dataG=fmtDate(addDays(wkDate,gi)).split('-').slice(1).reverse().join('/');
+    html+=`<div style="font-weight:600;font-size:12px;margin:8px 0 3px;color:#6b6a65">${giorno} ${dataG}</div>`;
+    slots.forEach(slot=>{
+      const mat=slot.materie&&slot.materie.length?slot.materie:TUTTE_MATERIE;
+      const hI=oraMin(slot.oraInizio),hF=oraMin(slot.oraFine);
+      const fmt=m=>{const h=Math.floor(m/60),mm=m%60;return(h<10?'0'+h:h)+':'+(mm<10?'0'+mm:mm);};
+      let subSlots=[];
+      for(let m=hI;m+60<=hF;m+=30)subSlots.push({oI:fmt(m),oF:fmt(m+60),label:`${fmt(m)}–${fmt(m+60)} (1h)`});
+      if(hF-hI>60)subSlots.push({oI:slot.oraInizio,oF:slot.oraFine,label:`${slot.oraInizio}–${slot.oraFine} (tutto)`});
+      const seen=new Set();subSlots=subSlots.filter(x=>{const k=x.oI+x.oF;if(seen.has(k))return false;seen.add(k);return true;});
+      subSlots.forEach(sub=>{
+        const assHere=db.assegnazioni.filter(a=>a.disponibilitaId===slot.id&&a.oraInizio<sub.oF&&sub.oI<a.oraFine);
+        const pieno=assHere.length>=MAX_ST;
+        const giaAss=assHere.some(a=>a.studenteId===stId);
+        const colore=giaAss?'background:#e8f5e9':pieno?'background:#fee;opacity:.6':'';
+        const matOpts=mat.map(m=>`<option>${m}</option>`).join('');
+        html+=`<div class="ads-slot" style="display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:8px;margin-bottom:2px;font-size:13px;flex-wrap:wrap;${colore}">
+          <input type="checkbox" class="ads-check" data-slot="${slot.id}" data-oi="${sub.oI}" data-of="${sub.oF}" data-doc="${doc.nome} ${doc.cognome}" data-giorno="${giorno}" ${giaAss?'disabled checked':pieno?'disabled':''} style="width:16px;height:16px">
+          <span style="min-width:120px;font-weight:500">${sub.label}</span>
+          <select class="ads-mat" style="padding:3px 6px;border:1px solid #d4d2cc;border-radius:6px;font-size:12px;font-family:inherit">${matOpts}</select>
+          <span class="badge ${assHere.length>=MAX_ST?'red':assHere.length>=MAX_ST-1?'amber':'green'}" style="font-size:10px">${assHere.length}/${MAX_ST}</span>
+          ${giaAss?'<span style="font-size:11px;color:#2e7d32">✓</span>':''}
+        </div>`;
+      });
+    });
+  });
+  cont.style.display='none';
+  detail.innerHTML=html;
+  detail.style.display='block';
+  btn.style.display='';
+}
+
 function salvaAssegnazioneDaStudente(stId){
   const checks=[...document.querySelectorAll('.ads-check:checked:not(:disabled)')];
   if(!checks.length){alert('Seleziona almeno uno slot.');return;}
   const isInd=document.getElementById('ads-individuale')&&document.getElementById('ads-individuale').checked;
-  const wk=fmtDate(currentWeekStart);
-  const nextMon=currentWeekStart;
+  const wk=document.getElementById('ads-settimana')?document.getElementById('ads-settimana').value:fmtDate(currentWeekStart);
+  const nextMon=new Date(wk);
   let ok=0,errori=[];
   checks.forEach((chk,idx)=>{
     const slotId=Number(chk.dataset.slot);
