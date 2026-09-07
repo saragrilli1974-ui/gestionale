@@ -208,6 +208,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <button class="btn success" onclick="openModal('nuova-disponibilita')"><i class="ti ti-calendar-plus"></i> Disponibilità</button>
     <button class="btn primary" onclick="openModal('nuova-assegnazione')"><i class="ti ti-user-plus"></i> Assegna</button>
     <button class="btn" style="background:#25D366;color:#fff;border-color:#25D366" onclick="inviaPlanningDocenti()"><i class="ti ti-brand-whatsapp"></i> Invia planning ai docenti</button>
+    <button class="btn" onclick="duplicaSettimana()" title="Copia tutte le assegnazioni nella settimana successiva"><i class="ti ti-copy"></i> Duplica settimana →</button>
   </div>
   <div id="pianificazione-content"></div>
 </div>
@@ -360,9 +361,9 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const fbAuth=firebase.auth();
 const fbStore=firebase.firestore();
-const DB_COLLECTIONS=['studenti','docenti','pagamenti','lezioni','disponibilita','assegnazioni','contatti','archivio','tutori'];
+const DB_COLLECTIONS=['studenti','docenti','pagamenti','lezioni','disponibilita','assegnazioni','contatti','archivio','tutori','classi'];
 /* Le disponibilità NON si salvano più nel faldone unico: ogni docente ha il suo (disponibilitaDocenti/{id}) */
-const DB_SAVE=['studenti','docenti','pagamenti','lezioni','assegnazioni','contatti','archivio','tutori'];
+const DB_SAVE=['studenti','docenti','pagamenti','lezioni','assegnazioni','contatti','archivio','tutori','classi'];
 let cloudReady=false;
 let syncTimer=null;
 let archivioSeeded=false;       /* le anagrafiche storiche sono state caricate in questa sessione? */
@@ -650,7 +651,7 @@ function apriDettaglio(id){
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:1.5rem;flex-wrap:wrap">
       <div class="avatar ${avColor(s.id)}" style="width:48px;height:48px;font-size:16px">${initials(s.nome,s.cognome)}</div>
       <div style="flex:1"><div style="font-size:20px;font-weight:600">${s.nome} ${s.cognome}</div><div style="font-size:13px;color:#9b9a94">${s.livello&&s.livello!=='superiori'?'<span class="badge blue">'+(s.livello==='elementari'?'Elementari':'Medie')+'</span> ':''}${s.tipo==='prova'?'Settimana gratuita':(p?p.label:'—')} · ${s.tipo==='prova'?'<span class="badge purple">In prova</span>':(s.attivo===false?'<span class="badge gray">Inattivo</span>':'<span class="badge green">Iscritto</span>')}</div></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">${s.tipo==='prova'?`<button class="btn" style="background:#7c3aed;color:#fff;border-color:#7c3aed" onclick="confermaIscrizione(${s.id})"><i class="ti ti-user-check"></i> Conferma iscrizione</button>`:''}<button class="btn success" onclick="generaPlanningPDF(${s.id})"><i class="ti ti-file-download"></i> Planning PDF</button><button class="btn" style="background:#25D366;color:#fff;border-color:#25D366" onclick="apriWhatsApp(${s.id})"><i class="ti ti-brand-whatsapp"></i> WhatsApp</button><button class="btn" onclick="openModal('modifica-studente',${s.id})"><i class="ti ti-edit"></i> Modifica</button><button class="btn danger" onclick="eliminaStudente(${s.id})"><i class="ti ti-trash"></i></button></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${s.tipo==='prova'?`<button class="btn" style="background:#7c3aed;color:#fff;border-color:#7c3aed" onclick="confermaIscrizione(${s.id})"><i class="ti ti-user-check"></i> Conferma iscrizione</button>`:''}<button class="btn primary" onclick="openModal('assegna-da-studente',${s.id})"><i class="ti ti-calendar-plus"></i> Assegna lezioni</button><button class="btn success" onclick="generaPlanningPDF(${s.id})"><i class="ti ti-file-download"></i> Planning PDF</button><button class="btn" style="background:#25D366;color:#fff;border-color:#25D366" onclick="apriWhatsApp(${s.id})"><i class="ti ti-brand-whatsapp"></i> WhatsApp</button><button class="btn" onclick="openModal('modifica-studente',${s.id})"><i class="ti ti-edit"></i> Modifica</button><button class="btn danger" onclick="eliminaStudente(${s.id})"><i class="ti ti-trash"></i></button></div>
     </div>
     <div class="grid3" style="margin-bottom:1.25rem">
       <div class="metric-card"><div class="metric-label">Ore totali tenute</div><div class="metric-value">${totOre}h</div></div>
@@ -1140,6 +1141,55 @@ function eliminaContatto(id){
 function vaiOggi(){currentWeekStart=getMonday(new Date());renderPianificazione();}
 function cambiaSettimana(n){currentWeekStart=addDays(currentWeekStart,n*7);renderPianificazione();}
 
+function duplicaSettimana(){
+  const wkOld=fmtDate(currentWeekStart);
+  const nextMon=addDays(currentWeekStart,7);
+  const wkNew=fmtDate(nextMon);
+  const dispOld=db.disponibilita.filter(d=>d.settimana===wkOld);
+  const assOld=db.assegnazioni.filter(a=>a.settimana===wkOld);
+  if(!assOld.length){alert('Nessuna assegnazione in questa settimana da duplicare.');return;}
+  /* Controlla se ci sono già assegnazioni nella settimana di destinazione */
+  const assNew=db.assegnazioni.filter(a=>a.settimana===wkNew);
+  if(assNew.length){if(!confirm(`La settimana ${fmtDateIT(nextMon)} – ${fmtDateIT(addDays(nextMon,4))} ha già ${assNew.length} assegnazion${assNew.length===1?'e':'i'}.\n\nVuoi aggiungere comunque le assegnazioni duplicate? (le eventuali sovrapposizioni verranno saltate)`))return;}
+  else{if(!confirm(`Duplicare ${assOld.length} assegnazion${assOld.length===1?'e':'i'} nella settimana ${fmtDateIT(nextMon)} – ${fmtDateIT(addDays(nextMon,4))}?`))return;}
+  /* Mappa vecchio slotId → nuovo slotId */
+  const slotMap={};
+  dispOld.forEach(d=>{
+    /* Cerca se esiste già uno slot identico nella settimana nuova */
+    let exists=db.disponibilita.find(x=>x.docenteId===d.docenteId&&x.giorno===d.giorno&&x.oraInizio===d.oraInizio&&x.oraFine===d.oraFine&&x.settimana===wkNew);
+    if(!exists){
+      exists={id:db.nextId++,docenteId:d.docenteId,giorno:d.giorno,oraInizio:d.oraInizio,oraFine:d.oraFine,settimana:wkNew,materie:d.materie?[...d.materie]:[]};
+      db.disponibilita.push(exists);
+    }
+    slotMap[d.id]=exists.id;
+  });
+  let duplicati=0,saltati=0;
+  assOld.forEach(a=>{
+    const newSlotId=slotMap[a.disponibilitaId];
+    if(!newSlotId){saltati++;return;}
+    /* Controlla se esiste già un'assegnazione identica */
+    const gia=db.assegnazioni.find(x=>x.disponibilitaId===newSlotId&&x.studenteId===a.studenteId&&x.oraInizio===a.oraInizio&&x.oraFine===a.oraFine&&x.settimana===wkNew);
+    if(gia){saltati++;return;}
+    /* Controlla sovrapposizione per lo studente */
+    const sovrap=db.assegnazioni.find(x=>x.studenteId===a.studenteId&&x.settimana===wkNew&&x.giorno===a.giorno&&x.oraInizio<a.oraFine&&a.oraInizio<x.oraFine);
+    if(sovrap){saltati++;return;}
+    const newAss={id:db.nextId++,disponibilitaId:newSlotId,studenteId:a.studenteId,materia:a.materia,docente:a.docente,giorno:a.giorno,oraInizio:a.oraInizio,oraFine:a.oraFine,settimana:wkNew,tipoLezione:a.tipoLezione||'gruppo'};
+    db.assegnazioni.push(newAss);
+    /* Crea anche la lezione corrispondente */
+    const gi=GIORNI.indexOf(a.giorno);
+    const dataLez=fmtDate(addDays(nextMon,gi));
+    const durata=Math.max(0.5,(oraMin(a.oraFine)-oraMin(a.oraInizio))/60);
+    const lezEsiste=db.lezioni.find(l=>l.studenteId===a.studenteId&&l.data===dataLez&&l.orario===`${a.oraInizio}–${a.oraFine}`);
+    if(!lezEsiste)db.lezioni.push({id:db.nextId++,studenteId:a.studenteId,data:dataLez,orario:`${a.oraInizio}–${a.oraFine}`,materia:a.materia,docente:a.docente,durata,stato:'Da confermare',note:'',tipoLezione:a.tipoLezione||'gruppo'});
+    duplicati++;
+  });
+  dispDirty=true;planDirty=true;
+  saveDb();
+  currentWeekStart=nextMon;
+  renderAll();
+  alert(`Fatto! ${duplicati} assegnazion${duplicati===1?'e':'i'} duplicat${duplicati===1?'a':'e'}${saltati?` (${saltati} saltate perché già presenti o sovrapposte)`:''}.`);
+}
+
 function renderPianificazione(){
   const wk=fmtDate(currentWeekStart);
   const filtroDoc=Number((document.getElementById('filtro-docente-piano')||{}).value)||null;
@@ -1616,6 +1666,55 @@ function openModal(tipo,arg){
       <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="ass-individuale" style="width:16px;height:16px"> Lezione individuale (€18/h invece di €5,50/h)</label></div>
       <div class="modal-footer"><button class="btn" onclick="closeModal()">Annulla</button><button class="btn primary" onclick="salvaAssegnazione()">Assegna</button></div>
     </div></div>`;
+  } else if(tipo==='assegna-da-studente'){
+    const stud=db.studenti.find(x=>x.id===arg);
+    const wk=fmtDate(currentWeekStart);
+    const dispSett=db.disponibilita.filter(d=>d.settimana===wk);
+    /* Costruisci griglia giorno per giorno */
+    let slotsHtml='';
+    GIORNI.slice(0,5).forEach((giorno,gi)=>{
+      const slots=dispSett.filter(d=>d.giorno===giorno);
+      if(!slots.length)return;
+      const dataG=fmtDate(addDays(currentWeekStart,gi)).split('-').slice(1).reverse().join('/');
+      slotsHtml+=`<div style="font-weight:600;font-size:13px;margin:10px 0 4px;color:#6b6a65">${giorno} ${dataG}</div>`;
+      slots.forEach(slot=>{
+        const doc=db.docenti.find(x=>x.id===slot.docenteId);
+        const docNome=doc?doc.nome+' '+doc.cognome:'?';
+        const mat=slot.materie&&slot.materie.length?slot.materie:TUTTE_MATERIE;
+        /* Sub-slot da 30min e 1h */
+        const hI=oraMin(slot.oraInizio),hF=oraMin(slot.oraFine);
+        const fmt=m=>{const h=Math.floor(m/60),mm=m%60;return (h<10?'0'+h:h)+':'+(mm<10?'0'+mm:mm);};
+        let subSlots=[];
+        for(let m=hI;m+60<=hF;m+=30)subSlots.push({oI:fmt(m),oF:fmt(m+60),label:`${fmt(m)}–${fmt(m+60)} (1h)`});
+        for(let m=hI;m+30<=hF;m+=30)subSlots.push({oI:fmt(m),oF:fmt(m+30),label:`${fmt(m)}–${fmt(m+30)} (30min)`});
+        if(hF-hI>60)subSlots.push({oI:slot.oraInizio,oF:slot.oraFine,label:`${slot.oraInizio}–${slot.oraFine} (tutto)`});
+        /* Rimuovi duplicati */
+        const seen=new Set();subSlots=subSlots.filter(x=>{const k=x.oI+x.oF;if(seen.has(k))return false;seen.add(k);return true;});
+        subSlots.forEach(sub=>{
+          /* Conta occupazione in questo sub-slot */
+          const assHere=db.assegnazioni.filter(a=>a.disponibilitaId===slot.id&&a.oraInizio<sub.oF&&sub.oI<a.oraFine);
+          const pieno=assHere.length>=MAX_ST;
+          const giaAss=assHere.some(a=>a.studenteId===arg);
+          const colore=giaAss?'background:#e8f5e9':pieno?'background:#fee;opacity:.6':'';
+          const matOpts=mat.map(m=>`<option>${m}</option>`).join('');
+          slotsHtml+=`<div class="ads-slot" style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;margin-bottom:3px;font-size:13px;flex-wrap:wrap;${colore}">
+            <input type="checkbox" class="ads-check" data-slot="${slot.id}" data-oi="${sub.oI}" data-of="${sub.oF}" data-doc="${docNome}" data-giorno="${giorno}" ${giaAss?'disabled checked':pieno?'disabled':''} style="width:16px;height:16px">
+            <span style="min-width:130px;font-weight:500">${sub.label}</span>
+            <span style="color:#6b6a65">${docNome}</span>
+            <select class="ads-mat" style="padding:4px 6px;border:1px solid #d4d2cc;border-radius:6px;font-size:12px;font-family:inherit">${matOpts}</select>
+            <span class="badge ${assHere.length>=MAX_ST?'red':assHere.length>=MAX_ST-1?'amber':'green'}" style="font-size:10px">${assHere.length}/${MAX_ST}</span>
+            ${giaAss?'<span style="font-size:11px;color:#2e7d32">✓ già assegnato</span>':''}
+          </div>`;
+        });
+      });
+    });
+    if(!slotsHtml)slotsHtml='<div class="empty">Nessuno slot disponibile questa settimana. Crea prima le disponibilità dei docenti nella Pianificazione.</div>';
+    html=`<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal" style="max-width:700px"><h2>Assegna lezioni — ${stud?stud.nome+' '+stud.cognome:''}</h2>
+      <p style="font-size:13px;color:#6b6a65;margin:0 0 8px">Settimana ${fmtDateIT(currentWeekStart)} – ${fmtDateIT(addDays(currentWeekStart,4))}. Spunta gli slot da assegnare.</p>
+      <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="ads-individuale" style="width:16px;height:16px"> Lezione individuale</label></div>
+      <div style="max-height:55vh;overflow-y:auto">${slotsHtml}</div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal()">Annulla</button><button class="btn primary" onclick="salvaAssegnazioneDaStudente(${arg})"><i class="ti ti-check"></i> Assegna selezionati</button></div>
+    </div></div>`;
   } else if(tipo==='nuovo-pagamento'){
     const studOpt=db.studenti.map(s=>`<option value="${s.id}"${arg===s.id?' selected':''}>${s.nome} ${s.cognome}</option>`).join('');
     const meseOpts=(()=>{const mesi=['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];const now=new Date();let o='';for(let i=-3;i<=4;i++){const d=new Date(now.getFullYear(),now.getMonth()+i,1);const v=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;o+=`<option value="${v}"${i===0?' selected':''}>${mesi[d.getMonth()]} ${d.getFullYear()}</option>`;}return o;})();
@@ -1658,7 +1757,8 @@ function openModal(tipo,arg){
       <div class="grid2">
         <div class="field"><label>Nome classe *</label><input id="cl-nome" value="${c?c.nome:''}" placeholder="Es: Classe A pomeriggio"></div>
         <div class="field"><label>Docente *</label><select id="cl-docente">${docOpt}</select></div>
-        <div class="field"><label>Fascia oraria *</label><select id="cl-fascia"><option value="15:00-17:00"${c&&c.fascia==='15:00-17:00'?' selected':''}>15:00 – 17:00</option><option value="17:00-19:00"${c&&c.fascia==='17:00-19:00'?' selected':''}>17:00 – 19:00</option></select></div>
+        <div class="field"><label>Fascia oraria *</label><select id="cl-fascia">${['15:00-16:00','16:00-17:00','15:00-17:00','17:00-18:00','18:00-19:00','17:00-19:00'].map(f=>`<option value="${f}"${c&&c.fascia===f?' selected':''}>${f.replace('-',' – ')}</option>`).join('')}</select></div>
+        <div class="field"><label>Giorni</label><div id="cl-giorni" style="display:flex;gap:6px;flex-wrap:wrap">${['Lun','Mar','Mer','Gio','Ven'].map(g=>{const ck=c&&Array.isArray(c.giorni)?c.giorni.includes(g):true;return `<label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer"><input type="checkbox" value="${g}"${ck?' checked':''}> ${g}</label>`;}).join('')}</div></div>
       </div>
       <div class="modal-footer"><button class="btn" onclick="closeModal()">Annulla</button><button class="btn primary" onclick="salvaClasse(${c?c.id:'null'})">${c?'Salva':'Crea classe'}</button></div>
     </div></div>`;
@@ -1687,12 +1787,14 @@ function salvaClasse(id){
   const nome=document.getElementById('cl-nome').value.trim();
   const docenteId=Number(document.getElementById('cl-docente').value);
   const fascia=document.getElementById('cl-fascia').value;
+  const giorni=[...document.querySelectorAll('#cl-giorni input:checked')].map(x=>x.value);
   if(!nome){alert('Inserisci il nome della classe');return;}
+  if(!giorni.length){alert('Seleziona almeno un giorno');return;}
   if(id!==null&&id!==undefined){
     const i=db.classi.findIndex(c=>c.id===id);
-    if(i>=0){db.classi[i].nome=nome;db.classi[i].docenteId=docenteId;db.classi[i].fascia=fascia;}
+    if(i>=0){db.classi[i].nome=nome;db.classi[i].docenteId=docenteId;db.classi[i].fascia=fascia;db.classi[i].giorni=giorni;}
   } else {
-    db.classi.push({id:db.nextId++,nome,docenteId,fascia,studenti:[]});
+    db.classi.push({id:db.nextId++,nome,docenteId,fascia,giorni,studenti:[]});
   }
   saveDb();closeModal();renderClassi();
 }
@@ -2007,6 +2109,51 @@ function salvaAssegnazione(){
   if(doc)notificaDocenteLezione(doc.nome+' '+doc.cognome,stId,dataLezione,`${oraI}–${oraF}`,materia,false);
 }
 
+function salvaAssegnazioneDaStudente(stId){
+  const checks=[...document.querySelectorAll('.ads-check:checked:not(:disabled)')];
+  if(!checks.length){alert('Seleziona almeno uno slot.');return;}
+  const isInd=document.getElementById('ads-individuale')&&document.getElementById('ads-individuale').checked;
+  const wk=fmtDate(currentWeekStart);
+  const nextMon=currentWeekStart;
+  let ok=0,errori=[];
+  checks.forEach((chk,idx)=>{
+    const slotId=Number(chk.dataset.slot);
+    const oraI=chk.dataset.oi;
+    const oraF=chk.dataset.of;
+    const docente=chk.dataset.doc;
+    const giorno=chk.dataset.giorno;
+    const matSel=chk.closest('.ads-slot').querySelector('.ads-mat');
+    const materia=matSel?matSel.value:'';
+    const slot=db.disponibilita.find(x=>x.id===slotId);
+    if(!slot){errori.push(`Slot non trovato per ${giorno} ${oraI}`);return;}
+    /* Controllo sovrapposizione studente */
+    const sovrap=db.assegnazioni.find(a=>a.studenteId===stId&&a.settimana===wk&&a.giorno===giorno&&a.oraInizio<oraF&&oraI<a.oraFine);
+    if(sovrap){errori.push(`${giorno} ${oraI}-${oraF}: sovrapposizione con ${sovrap.docente}`);return;}
+    /* Controllo capienza */
+    const assHere=db.assegnazioni.filter(a=>a.disponibilitaId===slotId&&a.oraInizio<oraF&&oraI<a.oraFine);
+    if(isInd&&assHere.length>0){errori.push(`${giorno} ${oraI}-${oraF}: slot occupato (individuale richiede slot vuoto)`);return;}
+    const indEsist=assHere.find(a=>a.tipoLezione==='individuale');
+    if(indEsist){errori.push(`${giorno} ${oraI}-${oraF}: c'è già una lezione individuale`);return;}
+    if(!isInd&&assHere.length>=MAX_ST){errori.push(`${giorno} ${oraI}-${oraF}: slot pieno (${MAX_ST}/${MAX_ST})`);return;}
+    /* Duplicato */
+    if(assHere.some(a=>a.studenteId===stId)){errori.push(`${giorno} ${oraI}-${oraF}: già assegnato`);return;}
+    const doc=db.docenti.find(x=>(x.nome+' '+x.cognome)===docente);
+    const durata=Math.max(0.5,(oraMin(oraF)-oraMin(oraI))/60);
+    db.assegnazioni.push({id:db.nextId++,disponibilitaId:slotId,studenteId:stId,materia,docente,giorno,oraInizio:oraI,oraFine:oraF,settimana:wk,tipoLezione:isInd?'individuale':'gruppo'});
+    const gi=GIORNI.indexOf(giorno);
+    const dataLez=fmtDate(addDays(nextMon,gi));
+    const lezEsiste=db.lezioni.find(l=>l.studenteId===stId&&l.data===dataLez&&l.orario===`${oraI}–${oraF}`);
+    if(!lezEsiste)db.lezioni.push({id:db.nextId++,studenteId:stId,data:dataLez,orario:`${oraI}–${oraF}`,materia,docente,durata,stato:'Da confermare',note:'',tipoLezione:isInd?'individuale':'gruppo'});
+    ok++;
+    if(doc)notificaDocenteLezione(doc.nome+' '+doc.cognome,stId,dataLez,`${oraI}–${oraF}`,materia,false);
+  });
+  planDirty=true;
+  saveDb();closeModal();renderAll();apriDettaglio(stId);
+  let msg=`${ok} lezione${ok!==1?'i':''} assegnata${ok!==1?'e':''}.`;
+  if(errori.length)msg+=`\n\nNon assegnate (${errori.length}):\n• `+errori.join('\n• ');
+  alert(msg);
+}
+
 function rimuoviAssegnazione(id){
   if(!confirm('Rimuovere questo studente dallo slot?'))return;
   db.assegnazioni=db.assegnazioni.filter(a=>a.id!==id);
@@ -2098,7 +2245,7 @@ function renderClassi(){
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
         <div>
           <div style="font-size:15px;font-weight:600">${c.nome}</div>
-          <div style="font-size:12px;color:#9b9a94"><i class="ti ti-clock"></i> ${c.fascia} · <i class="ti ti-user"></i> ${docNome} · Lun-Ven</div>
+          <div style="font-size:12px;color:#9b9a94"><i class="ti ti-clock"></i> ${c.fascia} · <i class="ti ti-user"></i> ${docNome} · ${Array.isArray(c.giorni)&&c.giorni.length?c.giorni.join(', '):'Lun-Ven'}</div>
         </div>
         <div style="display:flex;gap:6px">
           <span class="badge ${posti>0?'green':'red'}">${posti>0?posti+' post'+(posti===1?'o':'i')+' liber'+(posti===1?'o':'i'):'Completa'}</span>
