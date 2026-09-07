@@ -1676,8 +1676,8 @@ function openModal(tipo,arg){
         <div class="field" style="flex:1;margin:0"><label>Settimana</label><select id="ads-settimana" onchange="adsRenderDocenti(${arg})" style="width:100%;padding:8px 10px;border:1px solid #d4d2cc;border-radius:8px;font-size:13px;font-family:inherit">${settOpts}</select></div>
         <div class="field" style="margin:0"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap"><input type="checkbox" id="ads-individuale" style="width:16px;height:16px"> Individuale</label></div>
       </div>
-      <div id="ads-docenti-list"></div>
-      <div id="ads-slots-detail" style="display:none"></div>
+      <div id="ads-docenti-list" style="max-height:55vh;overflow-y:auto"></div>
+      <div id="ads-slots-detail" style="display:none;max-height:55vh;overflow-y:auto"></div>
       <div class="modal-footer"><button class="btn" onclick="closeModal()">Annulla</button><button class="btn primary" id="ads-btn-salva" onclick="salvaAssegnazioneDaStudente(${arg})" style="display:none"><i class="ti ti-check"></i> Assegna selezionati</button></div>
     </div></div>`;
     setTimeout(()=>adsRenderDocenti(arg),50);
@@ -2134,15 +2134,19 @@ function adsApriDocente(stId,docId){
       subSlots.forEach(sub=>{
         const assHere=db.assegnazioni.filter(a=>a.disponibilitaId===slot.id&&a.oraInizio<sub.oF&&sub.oI<a.oraFine);
         const pieno=assHere.length>=MAX_ST;
-        const giaAss=assHere.some(a=>a.studenteId===stId);
-        const colore=giaAss?'background:#e8f5e9':pieno?'background:#fee;opacity:.6':'';
+        /* Esatto: lo studente è assegnato esattamente a questo sub-slot */
+        const giaAss=db.assegnazioni.some(a=>a.studenteId===stId&&a.disponibilitaId===slot.id&&a.oraInizio===sub.oI&&a.oraFine===sub.oF);
+        /* Conflitto: lo studente ha un'altra lezione che si sovrappone (stesso giorno, stessa settimana) */
+        const conflitto=!giaAss&&db.assegnazioni.some(a=>a.studenteId===stId&&a.settimana===wk&&a.giorno===giorno&&a.oraInizio<sub.oF&&sub.oI<a.oraFine);
+        const colore=giaAss?'background:#e8f5e9':conflitto?'background:#fff8e1':pieno?'background:#fee;opacity:.6':'';
+        const disab=giaAss?'disabled checked':conflitto||pieno?'disabled':'';
         const matOpts=mat.map(m=>`<option>${m}</option>`).join('');
         html+=`<div class="ads-slot" style="display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:8px;margin-bottom:2px;font-size:13px;flex-wrap:wrap;${colore}">
-          <input type="checkbox" class="ads-check" data-slot="${slot.id}" data-oi="${sub.oI}" data-of="${sub.oF}" data-doc="${doc.nome} ${doc.cognome}" data-giorno="${giorno}" ${giaAss?'disabled checked':pieno?'disabled':''} style="width:16px;height:16px">
+          <input type="checkbox" class="ads-check" data-slot="${slot.id}" data-oi="${sub.oI}" data-of="${sub.oF}" data-doc="${doc.nome} ${doc.cognome}" data-giorno="${giorno}" ${disab} style="width:16px;height:16px">
           <span style="min-width:120px;font-weight:500">${sub.label}</span>
           <select class="ads-mat" style="padding:3px 6px;border:1px solid #d4d2cc;border-radius:6px;font-size:12px;font-family:inherit">${matOpts}</select>
           <span class="badge ${assHere.length>=MAX_ST?'red':assHere.length>=MAX_ST-1?'amber':'green'}" style="font-size:10px">${assHere.length}/${MAX_ST}</span>
-          ${giaAss?'<span style="font-size:11px;color:#2e7d32">✓</span>':''}
+          ${giaAss?'<span style="font-size:11px;color:#2e7d32">✓ assegnato</span>':''}${conflitto?'<span style="font-size:11px;color:#e65100">sovrapposto</span>':''}
         </div>`;
       });
     });
