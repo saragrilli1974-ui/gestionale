@@ -124,6 +124,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div id="pd-materie-wrap" style="background:#fafaf8;border-radius:8px;padding:10px;margin-top:10px;font-size:13px"></div>
   </div>
   <div id="pd-slots"></div>
+
+  <!-- ===== SEZIONE PRESENZE DOCENTE ===== -->
+  <div style="margin-top:1.5rem;border-top:2px solid #e8e6e0;padding-top:1.25rem">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+      <h2 style="margin:0;font-size:16px;font-weight:600"><i class="ti ti-clipboard-check"></i> Presenze</h2>
+      <div style="display:flex;align-items:center;gap:6px">
+        <button class="btn" onclick="pdCambiaGiornoPresenze(-1)"><i class="ti ti-chevron-left"></i></button>
+        <input type="date" id="pd-presenze-data" onchange="pdRenderPresenze()" style="padding:7px 10px;border:1px solid #d4d2cc;border-radius:8px;font-size:13px;font-family:inherit;outline:none">
+        <button class="btn" onclick="pdCambiaGiornoPresenze(1)"><i class="ti ti-chevron-right"></i></button>
+        <button class="btn" onclick="pdVaiOggiPresenze()">Oggi</button>
+      </div>
+    </div>
+    <div id="pd-presenze-lista"></div>
+  </div>
+
   <p style="color:#9b9a94;font-size:12px;margin-top:1.5rem">Vedi solo il tuo calendario. Gli studenti assegnati sono in sola lettura: per cambi o rimozioni contatta la segreteria — LogicaMente APS</p>
 </div>
 
@@ -235,6 +250,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <button class="btn" onclick="cambiaGiornoPresenze(1)"><i class="ti ti-chevron-right"></i></button>
     <button class="btn" onclick="vaiOggiPresenze()">Oggi</button>
     <button class="btn success" onclick="caricaDalPlanning()"><i class="ti ti-calendar-down"></i> Carica lezioni dal planning</button>
+    <button class="btn" onclick="sincronizzaPresenzeDocenti()" title="Importa le presenze segnate dai docenti nel loro portale" style="background:#7c3aed;color:#fff;border-color:#7c3aed"><i class="ti ti-refresh"></i> Sincronizza presenze docenti</button>
     <button class="btn primary" onclick="openModal('nuova-lezione')"><i class="ti ti-plus"></i> Aggiungi lezione</button>
   </div>
   <div class="grid3" style="margin-bottom:1.25rem">
@@ -1380,7 +1396,34 @@ function cambiaGiornoPresenze(n){
 }
 function vaiOggiPresenze(){document.getElementById('presenze-data').value=oggiStr();renderPresenze();}
 
-function caricaDalPlanning(){
+async function sincronizzaPresenzeDocenti(){
+  const giorno=document.getElementById('presenze-data').value||oggiStr();
+  const lezioniGiorno=db.lezioni.filter(l=>l.data===giorno);
+  if(!lezioniGiorno.length){alert('Non ci sono lezioni caricate per questa data. Prima clicca "Carica lezioni dal planning".');return;}
+  let presenzeDoc=[];
+  try{
+    setSyncBadge('saving');
+    const presSnap=await fbStore.collection('presenzeDocenti').get();
+    presSnap.forEach(doc=>{const d=doc.data();if(Array.isArray(d.items))presenzeDoc=presenzeDoc.concat(d.items);});
+    setSyncBadge('ok');
+  }catch(e){console.error(e);setSyncBadge('err');alert('Errore nella lettura delle presenze docenti.');return;}
+  const presOggi=presenzeDoc.filter(p=>p.data===giorno&&p.stato&&p.stato!=='Da confermare');
+  if(!presOggi.length){alert('Nessuna presenza segnata dai docenti per questa data.');return;}
+  let aggiornate=0;
+  lezioniGiorno.forEach(lez=>{
+    if(lez.stato!=='Da confermare')return; /* già segnata dall'admin, non sovrascrivere */
+    const st=db.studenti.find(x=>x.id===lez.studenteId);
+    if(!st)return;
+    const nomeCompleto=st.nome+' '+st.cognome;
+    const oraInizio=lez.orario?lez.orario.split('–')[0]:'';
+    const pDoc=presOggi.find(p=>p.studente===nomeCompleto&&p.oraInizio===oraInizio);
+    if(pDoc){lez.stato=pDoc.stato;aggiornate++;}
+  });
+  if(aggiornate){saveDb();renderPresenze();alert(`✓ Importate ${aggiornate} presenze segnate dai docenti.`);}
+  else{alert('Tutte le presenze dei docenti erano già state importate, oppure sono già state segnate manualmente.');}
+}
+
+async function caricaDalPlanning(){
   const giorno=document.getElementById('presenze-data').value||oggiStr();
   const [y,m,d]=giorno.split('-').map(Number);
   const dataObj=new Date(y,m-1,d);
@@ -1397,17 +1440,41 @@ function caricaDalPlanning(){
     ass=db.assegnazioni.filter(a=>a.settimana===precedente&&a.giorno===nomeGiorno);
     if(!ass.length){alert(`Nel planning di quella settimana non ci sono lezioni di ${nomeGiorno.toLowerCase()}.`);return;}
   }
-  let create=0,saltate=0;
+  /* Carica le presenze segnate dai docenti */
+  let presenzeDoc=[];
+  try{
+    const presSnap=await fbStore.collection('presenzeDocenti').get();
+    presSnap.forEach(doc=>{const d=doc.data();if(Array.isArray(d.items))presenzeDoc=presenzeDoc.concat(d.items);});
+  }catch(e){console.error('Lettura presenze docenti:',e);}
+  const presOggi=presenzeDoc.filter(p=>p.data===giorno&&p.stato&&p.stato!=='Da confermare');
+  let create=0,saltate=0,autoSegnate=0;
   ass.forEach(a=>{
     const orario=`${a.oraInizio}–${a.oraFine}`;
     const esiste=db.lezioni.find(l=>l.studenteId===a.studenteId&&l.data===giorno&&l.orario===orario);
-    if(esiste){saltate++;return;}
+    if(esiste){
+      /* Se il docente ha segnato la presenza e la lezione è ancora "Da confermare", la aggiorno */
+      if(esiste.stato==='Da confermare'){
+        const st=db.studenti.find(x=>x.id===a.studenteId);
+        const nomeCompleto=st?st.nome+' '+st.cognome:'';
+        const pDoc=presOggi.find(p=>p.studente===nomeCompleto&&p.oraInizio===a.oraInizio);
+        if(pDoc){esiste.stato=pDoc.stato;autoSegnate++;}
+      }
+      saltate++;return;
+    }
     const durata=Math.max(0.5,(oraMin(a.oraFine)-oraMin(a.oraInizio))/60)||1;
-    db.lezioni.push({id:db.nextId++,studenteId:a.studenteId,data:giorno,orario,materia:a.materia,docente:a.docente||'',durata,stato:'Da confermare',note:'',tipoLezione:a.tipoLezione||'gruppo'});
+    /* Controlla se il docente ha già segnato la presenza per questa lezione */
+    const st=db.studenti.find(x=>x.id===a.studenteId);
+    const nomeCompleto=st?st.nome+' '+st.cognome:'';
+    const pDoc=presOggi.find(p=>p.studente===nomeCompleto&&p.oraInizio===a.oraInizio);
+    const statoIniziale=pDoc?pDoc.stato:'Da confermare';
+    if(pDoc)autoSegnate++;
+    db.lezioni.push({id:db.nextId++,studenteId:a.studenteId,data:giorno,orario,materia:a.materia,docente:a.docente||'',durata,stato:statoIniziale,note:'',tipoLezione:a.tipoLezione||'gruppo'});
     create++;
   });
   saveDb();renderPresenze();
-  alert(`Registro pronto: ${create} lezioni caricate${saltate?`, ${saltate} già presenti (saltate)`:''}.`);
+  let msg=`Registro pronto: ${create} lezioni caricate${saltate?`, ${saltate} già presenti (saltate)`:''}`;
+  if(autoSegnate)msg+=`\n\n✓ ${autoSegnate} presenze già segnate dai docenti — importate automaticamente!`;
+  alert(msg);
 }
 
 function fissaRecupero(lezioneId){
@@ -2398,15 +2465,20 @@ async function loadPortaleDocente(){
     :'<span style="color:#9b9a94">Nessuna materia registrata — verranno proposte tutte.</span>';
   try{
     setSyncBadge('saving');
-    const [dSnap,pSnap]=await Promise.all([
+    const [dSnap,pSnap,prSnap]=await Promise.all([
       fbStore.collection('disponibilitaDocenti').doc(String(docentePortale.docenteId)).get(),
-      fbStore.collection('planningDocenti').doc(String(docentePortale.docenteId)).get()
+      fbStore.collection('planningDocenti').doc(String(docentePortale.docenteId)).get(),
+      fbStore.collection('presenzeDocenti').doc(String(docentePortale.docenteId)).get()
     ]);
     pdSlots=(dSnap.exists&&Array.isArray(dSnap.data().items))?dSnap.data().items:[];
     pdPlanning=(pSnap.exists&&Array.isArray(pSnap.data().items))?pSnap.data().items:[];
+    pdPresenze=(prSnap.exists&&Array.isArray(prSnap.data().items))?prSnap.data().items:[];
     setSyncBadge('ok');
   }catch(e){console.error(e);setSyncBadge('err');}
   renderPortale();
+  /* Inizializza la sezione presenze su oggi */
+  document.getElementById('pd-presenze-data').value=oggiStr();
+  pdRenderPresenze();
 }
 
 async function pdSalva(){
@@ -2484,6 +2556,111 @@ function pdCopiaSettimanaPrec(){
   });
   if(!copiati){alert('Le disponibilità erano già tutte presenti in questa settimana.');return;}
   pdSalva();renderPortale();
+}
+
+/* ============ PORTALE DOCENTE: PRESENZE ============ */
+let pdPresenze=[];  /* array di {data,studente,oraInizio,oraFine,materia,stato} */
+
+function pdVaiOggiPresenze(){document.getElementById('pd-presenze-data').value=oggiStr();pdRenderPresenze();}
+function pdCambiaGiornoPresenze(n){
+  const inp=document.getElementById('pd-presenze-data');
+  const d=new Date(inp.value||oggiStr());d.setDate(d.getDate()+n);
+  inp.value=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  pdRenderPresenze();
+}
+
+async function pdCaricaPresenze(){
+  if(!docentePortale)return;
+  try{
+    const snap=await fbStore.collection('presenzeDocenti').doc(String(docentePortale.docenteId)).get();
+    pdPresenze=(snap.exists&&Array.isArray(snap.data().items))?snap.data().items:[];
+  }catch(e){console.error('Errore caricamento presenze docente:',e);pdPresenze=[];}
+}
+
+async function pdSalvaPresenze(){
+  if(!docentePortale)return;
+  try{
+    setSyncBadge('saving');
+    await fbStore.collection('presenzeDocenti').doc(String(docentePortale.docenteId)).set({items:pdPresenze});
+    setSyncBadge('ok');
+  }catch(e){console.error(e);setSyncBadge('err');alert('Salvataggio presenze non riuscito, controlla la connessione.');}
+}
+
+function pdRenderPresenze(){
+  const inp=document.getElementById('pd-presenze-data');if(!inp)return;
+  if(!inp.value)inp.value=oggiStr();
+  const giorno=inp.value;
+  const cont=document.getElementById('pd-presenze-lista');if(!cont)return;
+
+  /* Ricavo il giorno della settimana e la settimana per filtrare il planning */
+  const [y,m,d]=giorno.split('-').map(Number);
+  const dataObj=new Date(y,m-1,d);
+  const idxGiorno=dataObj.getDay();
+  const nomeGiorno=idxGiorno===0?'Domenica':GIORNI[idxGiorno-1];
+  let sett=weekKey(giorno);
+
+  /* Cerco le lezioni pianificate per questo giorno */
+  let lezioniOggi=pdPlanning.filter(a=>a.giorno===nomeGiorno&&a.settimana===sett);
+
+  /* Se non c'è planning per questa settimana, provo con il più recente */
+  if(!lezioniOggi.length){
+    const settimane=[...new Set(pdPlanning.map(a=>a.settimana))].sort();
+    const precedente=settimane.filter(w=>w<=sett).pop()||settimane.pop();
+    if(precedente&&precedente!==sett){
+      lezioniOggi=pdPlanning.filter(a=>a.giorno===nomeGiorno&&a.settimana===precedente);
+    }
+  }
+
+  lezioniOggi.sort((a,b)=>(a.oraInizio||'').localeCompare(b.oraInizio||''));
+
+  if(!lezioniOggi.length){
+    cont.innerHTML='<div class="card"><div class="empty">Nessuna lezione pianificata per questo giorno.</div></div>';
+    return;
+  }
+
+  const html=lezioniOggi.map((lez,i)=>{
+    /* Cerco se c'è già una presenza salvata per questa lezione */
+    const pres=pdPresenze.find(p=>p.data===giorno&&p.studente===lez.studente&&p.oraInizio===lez.oraInizio);
+    const stato=pres?pres.stato:'Da confermare';
+    const key=`${giorno}||${lez.studente}||${lez.oraInizio}||${lez.oraFine}||${lez.materia}`;
+    return `<div class="card" style="margin-bottom:8px;padding:12px 16px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="color:#9b9a94;font-size:13px;min-width:90px;font-weight:500">${lez.oraInizio}–${lez.oraFine}</span>
+        <span style="font-weight:600;font-size:15px;flex:1;min-width:120px">${lez.studente}</span>
+        <span class="materia-tag">${lez.materia}</span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+        <button class="pres-btn ${stato==='Tenuta'?'on-green':''}" onclick="pdSetPresenza('${key.replace(/'/g,"\\'")}','Tenuta')">✓ Fatta</button>
+        <button class="pres-btn ${stato==='Assente'?'on-red':''}" onclick="pdSetPresenza('${key.replace(/'/g,"\\'")}','Assente')">✗ Assente</button>
+        <button class="pres-btn ${stato==='Assente giustificata'?'on-red':''}" style="${stato==='Assente giustificata'?'background:#f1f0ec;border-color:#c9c7c0;color:#57564f':''}" onclick="pdSetPresenza('${key.replace(/'/g,"\\'")}','Assente giustificata')">🔔 Giustificata</button>
+        <button class="pres-btn ${stato==='Docente assente'?'on-purple':''}" onclick="pdSetPresenza('${key.replace(/'/g,"\\'")}','Docente assente')">⚠ Non tenuta</button>
+      </div>
+      ${stato!=='Da confermare'?`<div style="margin-top:6px;font-size:12px;color:#16a34a;font-weight:500">✓ Segnata: ${stato}</div>`:'<div style="margin-top:6px;font-size:12px;color:#9b9a94">Da segnare</div>'}
+    </div>`;
+  }).join('');
+
+  const daSegnare=lezioniOggi.filter(lez=>{
+    const pres=pdPresenze.find(p=>p.data===giorno&&p.studente===lez.studente&&p.oraInizio===lez.oraInizio);
+    return !pres||pres.stato==='Da confermare';
+  }).length;
+
+  cont.innerHTML=`<div style="display:flex;gap:10px;margin-bottom:10px">
+    <div class="metric-card" style="flex:1"><div class="metric-label">Lezioni del giorno</div><div class="metric-value">${lezioniOggi.length}</div></div>
+    <div class="metric-card" style="flex:1"><div class="metric-label">Da segnare</div><div class="metric-value">${daSegnare}</div></div>
+  </div>${html}`;
+}
+
+function pdSetPresenza(key,stato){
+  const [data,studente,oraInizio,oraFine,materia]=key.split('||');
+  const idx=pdPresenze.findIndex(p=>p.data===data&&p.studente===studente&&p.oraInizio===oraInizio);
+  if(idx>=0){
+    if(pdPresenze[idx].stato===stato){pdPresenze[idx].stato='Da confermare';}  /* toggle */
+    else{pdPresenze[idx].stato=stato;}
+  }else{
+    pdPresenze.push({data,studente,oraInizio,oraFine,materia,stato,docenteNome:docentePortale.nome,ts:Date.now()});
+  }
+  pdSalvaPresenze();
+  pdRenderPresenze();
 }
 
 /* ============ SEGRETERIA: GESTIONE ACCESSI AL PORTALE ============ */
