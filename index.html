@@ -364,6 +364,7 @@ const MAX_ST=5;
 
 let db={studenti:[],docenti:[],pagamenti:[],lezioni:[],disponibilita:[],assegnazioni:[],contatti:[],archivio:[],tutori:[],classi:[],nextId:1};
 let currentWeekStart=getMonday(new Date());
+let dettaglioAperto=null; /* id dello studente con dettaglio aperto */
 
 /* ===== FIREBASE: ARCHIVIO ONLINE E LOGIN ===== */
 const firebaseConfig = {
@@ -655,6 +656,7 @@ function renderLista(){
 
 function apriDettaglio(id){
   const s=db.studenti.find(x=>x.id===id);if(!s)return;
+  dettaglioAperto=id;
   document.getElementById('view-lista').style.display='none';
   document.getElementById('view-dettaglio').style.display='block';
   const p=PIANI.find(x=>x.id===s.piano);
@@ -970,7 +972,7 @@ function generaRicevutaPDF(pagamentoId){
   doc.save(`planning-${s.cognome}-${s.nome}-${wk}.pdf`);
 }
 
-function backToLista(){document.getElementById('view-lista').style.display='block';document.getElementById('view-dettaglio').style.display='none';renderLista();}
+function backToLista(){dettaglioAperto=null;document.getElementById('view-lista').style.display='block';document.getElementById('view-dettaglio').style.display='none';renderLista();}
 
 function renderDocenti(){
   const q=(document.getElementById('search-docenti')||{}).value||'';
@@ -2834,6 +2836,7 @@ function switchTab(t){
   ['studenti','docenti','pianificazione','classi','presenze','pagamenti','lezioni','contatti','archivio'].forEach(x=>{document.getElementById('tab-'+x).style.display=x===t?'block':'none';});
   document.querySelectorAll('.topbar > .tabs > .tab').forEach((el,i)=>{el.classList.toggle('active',['studenti','docenti','pianificazione','classi','presenze','pagamenti','lezioni','contatti','archivio'][i]===t);});
   if(t==='presenze')renderPresenze();
+  if(t==='studenti'&&dettaglioAperto){apriDettaglio(dettaglioAperto);}
   if(t==='pagamenti')renderPagamenti();
   if(t==='lezioni'){renderLezioni();updateFiltroStudente();}
   if(t==='pianificazione'){updateFiltroDocente();renderPianificazione();}
