@@ -2145,7 +2145,8 @@ function salvaAssegnazione(){
   db.assegnazioni.push({id:db.nextId++,disponibilitaId:slotId,studenteId:stId,materia,docente:doc?doc.nome+' '+doc.cognome:'',giorno:slot.giorno,oraInizio:oraI,oraFine:oraF,settimana:slot.settimana,tipoLezione:isInd?'individuale':'gruppo'});
   planDirty=true;
   const gi=GIORNI.indexOf(slot.giorno);
-  const dataLezione=fmtDate(addDays(currentWeekStart,gi));
+  const slotMonday=new Date(slot.settimana+'T12:00:00');
+  const dataLezione=fmtDate(addDays(slotMonday,gi));
   const lezEsiste=db.lezioni.find(l=>l.studenteId===stId&&l.data===dataLezione&&l.orario===`${oraI}–${oraF}`);
   if(!lezEsiste) db.lezioni.push({id:db.nextId++,studenteId:stId,data:dataLezione,orario:`${oraI}–${oraF}`,materia,docente:doc?doc.nome+' '+doc.cognome:'',durata,stato:'Da confermare',note:'',tipoLezione:isInd?'individuale':'gruppo'});
   saveDb();closeModal();renderAll();
