@@ -2099,13 +2099,19 @@ function salvaDisponibilita(){
   const giorno=document.getElementById('disp-giorno').value;
   const oraInizio=document.getElementById('disp-ora-inizio').value;
   const oraFine=document.getElementById('disp-ora-fine').value;
-  const settimana=weekKey(document.getElementById('disp-settimana').value);
+  const rawDate=document.getElementById('disp-settimana').value;
+  if(!rawDate){alert('Seleziona una settimana.');return;}
+  const settimana=weekKey(rawDate);
   if(!docId||!giorno||!oraInizio||!oraFine){alert('Compila tutti i campi obbligatori');return;}
   if(oraMin(oraFine)<=oraMin(oraInizio)){alert('L\'ora di fine deve essere successiva all\'ora di inizio.');return;}
   const materie=[...document.querySelectorAll('.disp-mat:checked')].map(x=>x.value);
-  db.disponibilita.push({id:db.nextId++,docenteId:docId,giorno,oraInizio,oraFine,settimana,materie});
+  const nuovoSlot={id:db.nextId++,docenteId:docId,giorno,oraInizio,oraFine,settimana,materie};
+  db.disponibilita.push(nuovoSlot);
   dispDirty=true;
+  /* Allinea la vista pianificazione alla settimana in cui è stato creato lo slot */
+  currentWeekStart=getMonday(new Date(settimana+'T12:00:00'));
   saveDb();closeModal();renderPianificazione();
+  console.log('Slot aggiunto:',JSON.stringify(nuovoSlot),'currentWeek:',fmtDate(currentWeekStart));
 }
 
 function salvaAssegnazione(){
