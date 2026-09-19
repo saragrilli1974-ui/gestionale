@@ -2209,16 +2209,19 @@ function adsApriDocente(stId,docId){
         /* Esatto: lo studente è assegnato esattamente a questo sub-slot */
         const giaAss=db.assegnazioni.some(a=>a.studenteId===stId&&a.disponibilitaId===slot.id&&a.oraInizio===sub.oI&&a.oraFine===sub.oF);
         /* Conflitto: lo studente ha un'altra lezione che si sovrappone (stesso giorno, stessa settimana) */
-        const conflitto=!giaAss&&db.assegnazioni.some(a=>a.studenteId===stId&&a.settimana===wk&&a.giorno===giorno&&a.oraInizio<sub.oF&&sub.oI<a.oraFine);
+        const assConflitto=!giaAss?db.assegnazioni.find(a=>a.studenteId===stId&&a.settimana===wk&&a.giorno===giorno&&a.oraInizio<sub.oF&&sub.oI<a.oraFine):null;
+        const conflitto=!!assConflitto;
+        const conflittoLabel=assConflitto?`⚠ già con ${assConflitto.docente} ${assConflitto.oraInizio}-${assConflitto.oraFine}`:'';
         const colore=giaAss?'background:#e8f5e9':conflitto?'background:#fff8e1':pieno?'background:#fee;opacity:.6':'';
-        const disab=giaAss?'disabled checked':conflitto||pieno?'disabled':'';
+        /* Conflitto NON blocca più la checkbox: mostra un avviso ma permette la selezione */
+        const disab=giaAss?'disabled checked':pieno?'disabled':'';
         const matOpts=mat.map(m=>`<option>${m}</option>`).join('');
         html+=`<div class="ads-slot" style="display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:8px;margin-bottom:2px;font-size:13px;flex-wrap:wrap;${colore}">
           <input type="checkbox" class="ads-check" data-slot="${slot.id}" data-oi="${sub.oI}" data-of="${sub.oF}" data-doc="${doc.nome} ${doc.cognome}" data-giorno="${giorno}" ${disab} style="width:16px;height:16px">
           <span style="min-width:120px;font-weight:500">${sub.label}</span>
           <select class="ads-mat" style="padding:3px 6px;border:1px solid #d4d2cc;border-radius:6px;font-size:12px;font-family:inherit">${matOpts}</select>
           <span class="badge ${assHere.length>=MAX_ST?'red':assHere.length>=MAX_ST-1?'amber':'green'}" style="font-size:10px">${assHere.length}/${MAX_ST}</span>
-          ${giaAss?'<span style="font-size:11px;color:#2e7d32">✓ assegnato</span>':''}${conflitto?'<span style="font-size:11px;color:#e65100">sovrapposto</span>':''}
+          ${giaAss?'<span style="font-size:11px;color:#2e7d32">✓ assegnato</span>':''}${conflitto?`<span style="font-size:11px;color:#e65100;cursor:pointer" title="Clicca per rimuovere l'assegnazione conflittuale" onclick="event.stopPropagation();rimuoviAssegnazione(${assConflitto.id});adsApriDocente(${stId},${docId})">${conflittoLabel}</span>`:''}
         </div>`;
       });
     });
@@ -2293,7 +2296,7 @@ function salvaAssegnazioneDaStudente(stId){
   const isInd=document.getElementById('ads-individuale')&&document.getElementById('ads-individuale').checked;
   const wk=document.getElementById('ads-settimana')?document.getElementById('ads-settimana').value:fmtDate(currentWeekStart);
   const nextMon=new Date(wk);
-  let ok=0,errori=[];
+  let ok=0,spostati=0,errori=[];
   checks.forEach((chk,idx)=>{
     const slotId=Number(chk.dataset.slot);
     const oraI=chk.dataset.oi;
@@ -2304,9 +2307,9 @@ function salvaAssegnazioneDaStudente(stId){
     const materia=matSel?matSel.value:'';
     const slot=db.disponibilita.find(x=>x.id===slotId);
     if(!slot){errori.push(`Slot non trovato per ${giorno} ${oraI}`);return;}
-    /* Controllo sovrapposizione studente */
+    /* Controllo sovrapposizione studente: se c'è, rimuovi la vecchia assegnazione (spostamento) */
     const sovrap=db.assegnazioni.find(a=>a.studenteId===stId&&a.settimana===wk&&a.giorno===giorno&&a.oraInizio<oraF&&oraI<a.oraFine);
-    if(sovrap){errori.push(`${giorno} ${oraI}-${oraF}: sovrapposizione con ${sovrap.docente}`);return;}
+    if(sovrap){db.assegnazioni=db.assegnazioni.filter(a=>a.id!==sovrap.id);spostati++;}
     /* Controllo capienza */
     const assHere=db.assegnazioni.filter(a=>a.disponibilitaId===slotId&&a.oraInizio<oraF&&oraI<a.oraFine);
     if(isInd&&assHere.length>0){errori.push(`${giorno} ${oraI}-${oraF}: slot occupato (individuale richiede slot vuoto)`);return;}
@@ -2328,6 +2331,7 @@ function salvaAssegnazioneDaStudente(stId){
   planDirty=true;
   saveDb();closeModal();renderAll();apriDettaglio(stId);
   let msg=`${ok} lezione${ok!==1?'i':''} assegnata${ok!==1?'e':''}.`;
+  if(spostati)msg+=`\n(${spostati} spostata${spostati!==1?'e':''} da un altro docente)`;
   if(errori.length)msg+=`\n\nNon assegnate (${errori.length}):\n• `+errori.join('\n• ');
   alert(msg);
 }
@@ -2403,7 +2407,7 @@ function eseguiConfermaIscrizione(id){
 }
 function eliminaDocente(id){if(!confirm('Eliminare questo docente?'))return;db.docenti=db.docenti.filter(d=>d.id!==id);saveDb();backToDocenti();}
 function eliminaPagamento(id,stId){if(!confirm('Eliminare questo pagamento?'))return;db.pagamenti=db.pagamenti.filter(p=>p.id!==id);saveDb();if(stId)apriDettaglio(stId);else renderPagamenti();}
-function eliminaLezione(id,stId){if(!confirm('Eliminare questa lezione?'))return;db.lezioni=db.lezioni.filter(l=>l.id!==id);saveDb();if(stId)apriDettaglio(stId);else renderLezioni();}
+function eliminaLezione(id,stId){if(!confirm('Eliminare questa lezione?'))return;const lez=db.lezioni.find(l=>l.id===id);if(lez){/* Rimuovi anche l'assegnazione corrispondente dal planning */const dataObj=new Date(lez.data);const gIdx=dataObj.getDay();const giorno=gIdx===0?'Domenica':GIORNI[gIdx-1];const wk=fmtDate(getMonday(dataObj));const parti=(lez.orario||'').split(/[–\-]/);const oI=(parti[0]||'').trim();const oF=(parti[1]||'').trim();const assIdx=db.assegnazioni.findIndex(a=>a.studenteId===lez.studenteId&&a.settimana===wk&&a.giorno===giorno&&a.oraInizio===oI&&a.oraFine===oF);if(assIdx>=0){db.assegnazioni.splice(assIdx,1);planDirty=true;}}db.lezioni=db.lezioni.filter(l=>l.id!==id);saveDb();if(stId)apriDettaglio(stId);else renderLezioni();}
 
 /* ===================== CLASSI DOPOSCUOLA (Elementari/Medie) ===================== */
 const MAX_CLASSE=4;
@@ -2507,7 +2511,7 @@ function renderPortale(){
     const dataG=fmtDate(addDays(pdWeekStart,gi));
     html+=`<div class="card" style="margin-bottom:10px"><div style="font-size:13px;font-weight:600;color:#6b6a65;margin-bottom:6px">${giorno} ${dataG.split('-').slice(1).reverse().join('/')}</div>`;
     slots.sort((a,b)=>a.oraInizio<b.oraInizio?-1:1).forEach(slot=>{
-      const ass=pdPlanning.filter(a=>a.disponibilitaId===slot.id);
+      const ass=pdPlanning.filter(a=>a.disponibilitaId===slot.id&&a.settimana===wk);
       html+=`<div style="display:flex;align-items:center;gap:8px;background:#fafaf8;border-radius:8px;padding:8px 10px;margin-bottom:4px;flex-wrap:wrap">
         <span style="font-weight:500;min-width:100px">${slot.oraInizio}–${slot.oraFine}</span>
         <span style="color:#9b9a94;font-size:12px;flex:1">${(slot.materie||[]).join(', ')||'tutte le materie'}</span>
@@ -2536,7 +2540,7 @@ function pdAggiungiSlot(){
 
 function pdEliminaSlot(idStr){
   const slot=pdSlots.find(s=>String(s.id)===idStr);if(!slot)return;
-  const ass=pdPlanning.filter(a=>a.disponibilitaId===slot.id);
+  const ass=pdPlanning.filter(a=>a.disponibilitaId===slot.id&&a.settimana===slot.settimana);
   if(ass.length){alert('In questo slot ci sono già studenti assegnati ('+ass.map(a=>a.studente).join(', ')+').\nPer eliminarlo contatta la segreteria.');return;}
   if(!confirm('Eliminare questa disponibilità?'))return;
   pdSlots=pdSlots.filter(s=>String(s.id)!==idStr);
