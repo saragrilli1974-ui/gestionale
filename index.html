@@ -1360,6 +1360,7 @@ function renderPresenze(){
       </div>`;
     }).join('');
   }
+  autoImportaPresenze(giorno);
   /* Sezione recuperi */
   const filtro=(document.getElementById('filtro-recuperi')||{}).value||'aperti';
   let rec=calcolaRecuperi();
@@ -1398,31 +1399,61 @@ function cambiaGiornoPresenze(n){
 }
 function vaiOggiPresenze(){document.getElementById('presenze-data').value=oggiStr();renderPresenze();}
 
+/* Normalizza nomi e orari per il confronto (maiuscole, spazi doppi, spazi finali) */
+function normPres(x){return String(x||'').toLowerCase().replace(/\s+/g,' ').trim();}
+
+/* Legge le presenze segnate dai docenti e le applica alle lezioni "Da confermare" del giorno */
+async function importaPresenzeDocenti(giorno){
+  const presSnap=await fbStore.collection('presenzeDocenti').get();
+  let presenzeDoc=[];
+  presSnap.forEach(doc=>{const d=doc.data();if(Array.isArray(d.items))presenzeDoc=presenzeDoc.concat(d.items);});
+  const presOggi=presenzeDoc.filter(p=>p.data===giorno&&p.stato&&p.stato!=='Da confermare');
+  const usate=new Set();
+  let aggiornate=0;
+  db.lezioni.filter(l=>l.data===giorno).forEach(lez=>{
+    const st=db.studenti.find(x=>x.id===lez.studenteId);if(!st)return;
+    const nome=normPres(st.nome+' '+st.cognome);
+    const ora=normPres((lez.orario||'').split(/[–-]/)[0]);
+    const cand=presOggi.filter(p=>normPres(p.studente)===nome&&normPres(p.oraInizio)===ora);
+    if(!cand.length)return;
+    /* se lo studente ha due lezioni alla stessa ora, uso quella del docente giusto */
+    const pDoc=cand.find(p=>normPres(p.docenteNome)===normPres(lez.docente))||cand[0];
+    usate.add(pDoc);
+    if(lez.stato!=='Da confermare')return; /* già segnata dalla segreteria, non sovrascrivere */
+    if(lez.stato!==pDoc.stato){lez.stato=pDoc.stato;aggiornate++;}
+  });
+  const nonAbbinate=presOggi.filter(p=>!usate.has(p));
+  return {trovate:presOggi.length,aggiornate,nonAbbinate};
+}
+
 async function sincronizzaPresenzeDocenti(){
   const giorno=document.getElementById('presenze-data').value||oggiStr();
-  const lezioniGiorno=db.lezioni.filter(l=>l.data===giorno);
-  if(!lezioniGiorno.length){alert('Non ci sono lezioni caricate per questa data. Prima clicca "Carica lezioni dal planning".');return;}
-  let presenzeDoc=[];
+  if(!db.lezioni.some(l=>l.data===giorno)){alert('Non ci sono lezioni caricate per questa data. Prima clicca "Carica lezioni dal planning".');return;}
+  let r;
+  try{setSyncBadge('saving');r=await importaPresenzeDocenti(giorno);setSyncBadge('ok');}
+  catch(e){console.error(e);setSyncBadge('err');alert('Errore nella lettura delle presenze docenti:\n'+(e.message||e));return;}
+  if(r.aggiornate){saveDb();renderPresenze();}
+  let msg=r.trovate?`Presenze segnate dai docenti per questa data: ${r.trovate}\nImportate ora: ${r.aggiornate}`:'Nessuna presenza segnata dai docenti per questa data.';
+  if(r.nonAbbinate.length){
+    msg+=`\n\n⚠ ${r.nonAbbinate.length} non abbinate a nessuna lezione del registro:\n`+
+      r.nonAbbinate.map(p=>`• ${p.oraInizio} ${p.studente} (${p.docenteNome||'?'}) → ${p.stato}`).join('\n');
+  }
+  alert(msg);
+}
+
+/* Import automatico quando si apre il registro (solo segreteria), al massimo una volta al minuto per giorno */
+var _autoSyncPres={};
+async function autoImportaPresenze(giorno){
+  if(typeof docentePortale!=='undefined'&&docentePortale)return;
+  if(typeof fbStore==='undefined'||!fbStore)return;
+  if(!db.lezioni.some(l=>l.data===giorno&&l.stato==='Da confermare'))return;
+  const ora=Date.now();
+  if(_autoSyncPres[giorno]&&ora-_autoSyncPres[giorno]<60000)return;
+  _autoSyncPres[giorno]=ora;
   try{
-    setSyncBadge('saving');
-    const presSnap=await fbStore.collection('presenzeDocenti').get();
-    presSnap.forEach(doc=>{const d=doc.data();if(Array.isArray(d.items))presenzeDoc=presenzeDoc.concat(d.items);});
-    setSyncBadge('ok');
-  }catch(e){console.error(e);setSyncBadge('err');alert('Errore nella lettura delle presenze docenti.');return;}
-  const presOggi=presenzeDoc.filter(p=>p.data===giorno&&p.stato&&p.stato!=='Da confermare');
-  if(!presOggi.length){alert('Nessuna presenza segnata dai docenti per questa data.');return;}
-  let aggiornate=0;
-  lezioniGiorno.forEach(lez=>{
-    if(lez.stato!=='Da confermare')return; /* già segnata dall'admin, non sovrascrivere */
-    const st=db.studenti.find(x=>x.id===lez.studenteId);
-    if(!st)return;
-    const nomeCompleto=st.nome+' '+st.cognome;
-    const oraInizio=lez.orario?lez.orario.split('–')[0]:'';
-    const pDoc=presOggi.find(p=>p.studente===nomeCompleto&&p.oraInizio===oraInizio);
-    if(pDoc){lez.stato=pDoc.stato;aggiornate++;}
-  });
-  if(aggiornate){saveDb();renderPresenze();alert(`✓ Importate ${aggiornate} presenze segnate dai docenti.`);}
-  else{alert('Tutte le presenze dei docenti erano già state importate, oppure sono già state segnate manualmente.');}
+    const r=await importaPresenzeDocenti(giorno);
+    if(r.aggiornate){saveDb();renderPresenze();}
+  }catch(e){console.error('Import automatico presenze docenti:',e);}
 }
 
 async function caricaDalPlanning(){
