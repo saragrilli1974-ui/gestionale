@@ -98,6 +98,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .cal-linea{position:absolute;left:0;right:0;border-top:1px solid #d9d7d0}
 .cal-linea.mezza{border-top:1px dashed #ebe9e3}
 .cal-blocco{position:absolute;border-radius:6px;padding:3px 6px;font-size:11px;line-height:1.3;overflow:hidden;border-left:3px solid;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.cal-libero{cursor:pointer}
+.cal-libero:hover{background:#f5f3ff}
+.cal-blocco.cliccabile{cursor:pointer}
+.cal-blocco.cliccabile:hover{filter:brightness(.97)}
 .cal-blocco.gruppo{background:#ede9fe;color:#4c1d95;border-left-color:#7c3aed}
 .cal-blocco.ind{background:#ffedd5;color:#7c2d12;border-left-color:#EE8018}
 .cal-blocco-top{display:flex;justify-content:space-between;gap:4px;font-weight:600}
@@ -1374,7 +1378,7 @@ function calBlocchi(docId,data){
     if(!b.ass)return;
     let n=0;for(let m=b.ini;m<b.fin;m+=30){const c=b.ass.filter(a=>oraMin(a.oraInizio)<=m&&m<oraMin(a.oraFine)).length;if(c>n)n=c;}
     const righe=b.ass.map(a=>{const st=db.studenti.find(x=>x.id===a.studenteId);return `${st?st.nome+' '+st.cognome:'?'} — ${a.materia||''} (${a.oraInizio}–${a.oraFine})`;});
-    b.tipo='gruppo';b.n=n;b.max=MAX_ST;
+    b.tipo='gruppo';b.n=n;b.max=MAX_ST;b.slotId=b.ass[0].disponibilitaId;
     b.nomi=b.ass.map(a=>calNomeBreve(db.studenti.find(x=>x.id===a.studenteId)));
     b.titolo=`Gruppo — ${n}/${MAX_ST} posti occupati\n`+righe.join('\n');
     delete b.ass;
@@ -1407,7 +1411,7 @@ function calColonna(docId,data){
   let html=`<div class="cal-col" style="height:${h}px">`;
   db.disponibilita.filter(s=>s.docenteId===docId&&s.settimana===wk&&s.giorno===giorno).forEach(s=>{
     const y1=calY(oraMin(s.oraInizio)),y2=calY(oraMin(s.oraFine));
-    if(y2>y1)html+=`<div class="cal-libero" style="top:${y1}px;height:${y2-y1}px" title="Disponibile ${calEsc(s.oraInizio)}–${calEsc(s.oraFine)}${(s.materie||[]).length?'\n'+calEsc(s.materie.join(', ')):''}"></div>`;
+    if(y2>y1)html+=`<div class="cal-libero" onclick="calAssegna(event,${s.id})" style="top:${y1}px;height:${y2-y1}px" title="Disponibile ${calEsc(s.oraInizio)}–${calEsc(s.oraFine)}${(s.materie||[]).length?'\n'+calEsc(s.materie.join(', ')):''}\nClicca per assegnare uno studente"></div>`;
   });
   html+='<div class="cal-linee">';
   for(let m=CAL_ORA_INIZIO*60+30;m<CAL_ORA_FINE*60;m+=30)html+=`<div class="cal-linea${m%60?' mezza':''}" style="top:${calY(m)}px"></div>`;
@@ -1416,11 +1420,30 @@ function calColonna(docId,data){
     const y1=calY(b.ini),y2=calY(b.fin);if(y2<=y1)return;
     const w=100/b.lanes;
     const pieno=b.n>=b.max&&b.tipo==='gruppo';
-    html+=`<div class="cal-blocco ${b.tipo}" style="top:${y1+1}px;height:${y2-y1-2}px;left:calc(${b.lane*w}% + 2px);width:calc(${w}% - 4px)" title="${calEsc(b.titolo)}">
+    const cliccabile=b.tipo==='gruppo'&&!b.classe&&!pieno&&b.slotId;
+    html+=`<div class="cal-blocco ${b.tipo}${cliccabile?' cliccabile':''}"${cliccabile?` onclick="calAssegna(event,${b.slotId})"`:''} style="top:${y1+1}px;height:${y2-y1-2}px;left:calc(${b.lane*w}% + 2px);width:calc(${w}% - 4px)" title="${calEsc(b.titolo+(cliccabile?'\nClicca per aggiungere uno studente':''))}">
       <div class="cal-blocco-top"><span>${calEsc(b.classe?b.nomi[0]:(b.tipo==='ind'?'Individuale':'Gruppo'))}</span><span class="cal-posti${pieno?' pieno':''}">${b.n}/${b.max}</span></div>
       <div class="cal-nomi">${(b.classe?b.nomi.slice(1):b.nomi).map(calEsc).join('<br>')}</div></div>`;
   });
   return html+'</div>';
+}
+/* Clic su una fascia libera (o su un gruppo con posti liberi): apre "Assegna studente"
+   con lo slot già scelto e l'orario più vicino al punto cliccato */
+function calAssegna(ev,slotId){
+  const slot=db.disponibilita.find(x=>x.id===slotId);if(!slot)return;
+  const col=ev.currentTarget.closest('.cal-col');
+  const y=ev.clientY-col.getBoundingClientRect().top;
+  const minCliccato=Math.floor((CAL_ORA_INIZIO*60+y/CAL_PX_ORA*60)/30)*30;
+  /* la finestra di assegnazione mostra gli slot della settimana selezionata in Pianificazione: la allineo */
+  currentWeekStart=new Date(slot.settimana+'T12:00:00');
+  openModal('nuova-assegnazione',slotId);
+  setTimeout(()=>{
+    const sel=document.getElementById('ass-orario');if(!sel)return;
+    const opts=[...sel.options].filter(o=>o.value.includes('|')&&!o.textContent.startsWith('Tutto'));
+    const ok=opts.filter(o=>{const [a,b]=o.value.split('|');return oraMin(a)<=minCliccato&&minCliccato<oraMin(b);});
+    const scelta=ok.find(o=>oraMin(o.value.split('|')[0])===minCliccato)||ok[ok.length-1];
+    if(scelta)sel.value=scelta.value;
+  },120);
 }
 function calColonnaOre(){
   let html=`<div class="cal-ore" style="height:${(CAL_ORA_FINE-CAL_ORA_INIZIO)*CAL_PX_ORA}px">`;
