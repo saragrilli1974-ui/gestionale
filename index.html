@@ -77,6 +77,33 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .week-label{font-size:15px;font-weight:600;flex:1}
 .slot-chip{background:#ede9fe;color:#5b21b6;border-radius:4px;padding:2px 6px;font-size:11px;margin:1px;display:inline-flex;align-items:center;gap:3px;cursor:pointer}
 .slot-chip:hover{background:#ddd6fe}
+/* ===== CALENDARIO DOCENTI ===== */
+.cal-legenda{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:#6b6a65;margin-bottom:10px}
+.cal-legenda span{display:inline-flex;align-items:center;gap:6px}
+.cal-sw{display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid #d4d2cc}
+.cal-sw-gruppo{background:#ede9fe;border-color:#7c3aed}
+.cal-sw-ind{background:#ffedd5;border-color:#EE8018}
+.cal-grid{display:grid;min-width:760px}
+.cal-head{font-size:12px;font-weight:600;color:#57564f;text-align:center;padding:10px 4px;border-bottom:1px solid #e8e6e0;border-left:1px solid #e8e6e0;line-height:1.3}
+.cal-head span.gg{display:block;font-weight:400}
+.cal-head:first-letter{text-transform:uppercase}
+.cal-head.oggi{color:#4F46E5;background:#f5f3ff}
+.cal-head.link{cursor:pointer}
+.cal-head.link:hover{background:#fafaf8;color:#4F46E5}
+.cal-ore{position:relative}
+.cal-ora{position:absolute;right:8px;font-size:11px;color:#9b9a94;margin-top:3px}
+.cal-col{position:relative;border-left:1px solid #e8e6e0;background:#e4e3de}
+.cal-libero{position:absolute;left:0;right:0;background:#fff}
+.cal-linee{position:absolute;inset:0;pointer-events:none}
+.cal-linea{position:absolute;left:0;right:0;border-top:1px solid #d9d7d0}
+.cal-linea.mezza{border-top:1px dashed #ebe9e3}
+.cal-blocco{position:absolute;border-radius:6px;padding:3px 6px;font-size:11px;line-height:1.3;overflow:hidden;border-left:3px solid;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.cal-blocco.gruppo{background:#ede9fe;color:#4c1d95;border-left-color:#7c3aed}
+.cal-blocco.ind{background:#ffedd5;color:#7c2d12;border-left-color:#EE8018}
+.cal-blocco-top{display:flex;justify-content:space-between;gap:4px;font-weight:600}
+.cal-posti{font-weight:700;white-space:nowrap}
+.cal-posti.pieno{color:#b91c1c}
+.cal-nomi{font-weight:400}
 .materia-tag{display:inline-block;background:#e0e7ff;color:#3730a3;border-radius:4px;padding:2px 7px;font-size:11px;margin:2px}
 </style>
 </head>
@@ -149,6 +176,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <button class="tab active" onclick="switchTab('studenti')">Studenti</button>
     <button class="tab" onclick="switchTab('docenti')">Docenti</button>
     <button class="tab" onclick="switchTab('pianificazione')">Pianificazione</button>
+    <button class="tab" onclick="switchTab('calendario')">Calendario docenti</button>
     <button class="tab" onclick="switchTab('classi')">Classi</button>
     <button class="tab" onclick="switchTab('presenze')">Presenze</button>
     <button class="tab" onclick="switchTab('pagamenti')">Pagamenti</button>
@@ -226,6 +254,28 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <button class="btn" onclick="duplicaSettimana()" title="Copia tutte le assegnazioni nella settimana successiva"><i class="ti ti-copy"></i> Duplica settimana →</button>
   </div>
   <div id="pianificazione-content"></div>
+</div>
+
+<div id="tab-calendario" style="display:none">
+  <div class="week-nav">
+    <div class="tabs" style="margin:0">
+      <button class="tab active" id="cal-modo-settimana" onclick="calSetModo('settimana')">Un docente</button>
+      <button class="tab" id="cal-modo-giorno" onclick="calSetModo('giorno')">Tutti i docenti</button>
+    </div>
+    <select id="cal-docente" onchange="calCambiaDocente(this.value)" style="padding:8px 10px;border:1px solid #d4d2cc;border-radius:8px;font-size:13px;font-family:inherit;outline:none"></select>
+    <button class="btn" onclick="calSposta(-1)" title="Indietro"><i class="ti ti-chevron-left"></i></button>
+    <div class="week-label" id="cal-label"></div>
+    <button class="btn" onclick="calSposta(1)" title="Avanti"><i class="ti ti-chevron-right"></i></button>
+    <button class="btn" onclick="calOggi()">Oggi</button>
+    <button class="btn" onclick="ricaricaDisponibilita()" title="Ricarica le disponibilità aggiornate dai docenti"><i class="ti ti-refresh"></i> Aggiorna</button>
+  </div>
+  <div class="cal-legenda">
+    <span><i class="cal-sw" style="background:#fff"></i> Disponibile</span>
+    <span><i class="cal-sw" style="background:#e4e3de"></i> Non disponibile</span>
+    <span><i class="cal-sw cal-sw-gruppo"></i> Gruppo</span>
+    <span><i class="cal-sw cal-sw-ind"></i> Individuale</span>
+  </div>
+  <div class="card" style="padding:0;overflow-x:auto"><div id="calendario-content"></div></div>
 </div>
 
 <div id="tab-classi" style="display:none">
@@ -511,6 +561,7 @@ async function ricaricaDisponibilita(){
     }
     setSyncBadge('ok');
     renderPianificazione();
+    renderCalendario();
   }catch(e){console.error(e);setSyncBadge('err');}
 }
 
@@ -606,7 +657,7 @@ function loadDb(){
 }
 
 function saveDb(){try{localStorage.setItem('doposcuola-db',JSON.stringify(db));}catch(e){}saveDbCloud();}
-function renderAll(){renderLista();renderDocenti();renderPianificazione();renderPresenze();renderPagamenti();renderLezioni();renderContatti();renderClassi();updateFiltroStudente();updateFiltroDocente();updateMetrics();}
+function renderAll(){renderLista();renderDocenti();renderPianificazione();renderPresenze();renderPagamenti();renderLezioni();renderContatti();renderClassi();renderCalendario();updateFiltroStudente();updateFiltroDocente();updateMetrics();}
 
 function initMesi(){
   const sel=document.getElementById('filtro-mese');if(!sel)return;
@@ -1252,6 +1303,160 @@ function renderPianificazione(){
     html+='</div>';
   });
   cont.innerHTML=html;
+}
+
+/* ===== CALENDARIO DOCENTI (solo segreteria) =====
+   Griglia settimanale per un docente (Lun–Sab, ore 14–20) oppure tutti i docenti affiancati per un giorno.
+   Grigio = non disponibile, bianco = disponibile, blocchi = lezioni (viola gruppo, arancio individuale). */
+const CAL_ORA_INIZIO=14, CAL_ORA_FINE=20, CAL_PX_ORA=64;
+let calModo='settimana';
+let calDocenteId=null;
+/* Le date del calendario stanno sempre a mezzogiorno, così la conversione in "AAAA-MM-GG" non slitta al giorno prima per il fuso orario */
+function calMezzogiorno(d){const x=new Date(d);x.setHours(12,0,0,0);return x;}
+function calOggiData(){let d=calMezzogiorno(new Date());if(d.getDay()===0)d=addDays(d,1);return d;}
+let calWeekStart=calMezzogiorno(getMonday(new Date()));
+let calGiorno=calOggiData();
+
+function calEsc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function calDocentiAttivi(){return db.docenti.filter(d=>d.attivo!==false);}
+function calSetModo(m){
+  calModo=m;
+  if(m==='giorno'){
+    /* se passo alla vista giorno, resto nella settimana che stavo guardando */
+    const oggi=calOggiData();
+    const inSett=fmtDate(getMonday(oggi))===fmtDate(calWeekStart);
+    calGiorno=inSett?oggi:new Date(calWeekStart);
+  }else{calWeekStart=calMezzogiorno(getMonday(calGiorno));}
+  renderCalendario();
+}
+function calCambiaDocente(v){calDocenteId=Number(v)||null;renderCalendario();}
+function calApriDocente(id){calDocenteId=id;calWeekStart=calMezzogiorno(getMonday(calGiorno));calModo='settimana';renderCalendario();}
+function calOggi(){
+  calWeekStart=calMezzogiorno(getMonday(new Date()));
+  calGiorno=calOggiData();
+  renderCalendario();
+}
+function calSposta(n){
+  if(calModo==='settimana'){calWeekStart=addDays(calWeekStart,n*7);}
+  else{let d=addDays(calGiorno,n);if(d.getDay()===0)d=addDays(d,n);calGiorno=d;}
+  renderCalendario();
+}
+
+/* Minuti → posizione verticale in pixel, limitata alla fascia 14–20 */
+function calY(min){const m=Math.min(Math.max(min,CAL_ORA_INIZIO*60),CAL_ORA_FINE*60);return (m-CAL_ORA_INIZIO*60)/60*CAL_PX_ORA;}
+function calNomeBreve(st){if(!st)return'?';const c=(st.cognome||'').trim();return st.nome+(c?' '+c[0]+'.':'');}
+function calDocenteDiAss(a){
+  const slot=db.disponibilita.find(s=>s.id===a.disponibilitaId);
+  if(slot)return slot.docenteId;
+  const d=db.docenti.find(x=>(x.nome+' '+x.cognome)===a.docente);return d?d.id:null;
+}
+
+/* Tutti i blocchi-lezione di un docente in un certo giorno */
+function calBlocchi(docId,data){
+  const wk=fmtDate(getMonday(data));
+  const gi=(data.getDay()+6)%7;const giorno=GIORNI[gi];
+  const ass=db.assegnazioni.filter(a=>a.settimana===wk&&a.giorno===giorno&&calDocenteDiAss(a)===docId);
+  const blocchi=[];
+  /* Individuali: un blocco per lezione */
+  ass.filter(a=>a.tipoLezione==='individuale').forEach(a=>{
+    const st=db.studenti.find(x=>x.id===a.studenteId);
+    blocchi.push({tipo:'ind',ini:oraMin(a.oraInizio),fin:oraMin(a.oraFine),nomi:[calNomeBreve(st)],titolo:`Individuale ${a.oraInizio}–${a.oraFine}\n${st?st.nome+' '+st.cognome:'?'} — ${a.materia||''}`,n:1,max:1});
+  });
+  /* Gruppo: unisco le lezioni che si sovrappongono in un unico blocco */
+  const gr=ass.filter(a=>a.tipoLezione!=='individuale').sort((x,y)=>oraMin(x.oraInizio)-oraMin(y.oraInizio));
+  let cur=null;
+  gr.forEach(a=>{
+    const i=oraMin(a.oraInizio),f=oraMin(a.oraFine);
+    if(cur&&i<cur.fin){cur.fin=Math.max(cur.fin,f);cur.ass.push(a);}
+    else{cur={ini:i,fin:f,ass:[a]};blocchi.push(cur);}
+  });
+  blocchi.forEach(b=>{
+    if(!b.ass)return;
+    let n=0;for(let m=b.ini;m<b.fin;m+=30){const c=b.ass.filter(a=>oraMin(a.oraInizio)<=m&&m<oraMin(a.oraFine)).length;if(c>n)n=c;}
+    const righe=b.ass.map(a=>{const st=db.studenti.find(x=>x.id===a.studenteId);return `${st?st.nome+' '+st.cognome:'?'} — ${a.materia||''} (${a.oraInizio}–${a.oraFine})`;});
+    b.tipo='gruppo';b.n=n;b.max=MAX_ST;
+    b.nomi=b.ass.map(a=>calNomeBreve(db.studenti.find(x=>x.id===a.studenteId)));
+    b.titolo=`Gruppo — ${n}/${MAX_ST} posti occupati\n`+righe.join('\n');
+    delete b.ass;
+  });
+  /* Classi doposcuola (ricorrenti ogni settimana nei giorni scelti) */
+  const abbr=giorno.slice(0,3);
+  (db.classi||[]).filter(c=>c.docenteId===docId&&(Array.isArray(c.giorni)&&c.giorni.length?c.giorni.includes(abbr):gi<5)).forEach(c=>{
+    const [oi,of]=String(c.fascia||'').split('-');if(!oi||!of)return;
+    const studs=(c.studenti||[]).map(id=>db.studenti.find(x=>x.id===id)).filter(Boolean);
+    blocchi.push({tipo:'gruppo',ini:oraMin(oi),fin:oraMin(of),nomi:[c.nome,...studs.map(calNomeBreve)],titolo:`Classe ${c.nome} ${oi}–${of} — ${studs.length}/${MAX_CLASSE}\n`+studs.map(s=>s.nome+' '+s.cognome).join('\n'),n:studs.length,max:MAX_CLASSE,classe:true});
+  });
+  /* Blocchi che si sovrappongono: li affianco in colonne */
+  blocchi.sort((x,y)=>x.ini-y.ini||y.fin-x.fin);
+  let gruppo=[],fineGruppo=-1;
+  const chiudi=()=>{const n=gruppo.reduce((m,b)=>Math.max(m,b.lane+1),1);gruppo.forEach(b=>b.lanes=n);gruppo=[];};
+  blocchi.forEach(b=>{
+    if(b.ini>=fineGruppo&&gruppo.length)chiudi();
+    const occupate=gruppo.filter(x=>x.fin>b.ini).map(x=>x.lane);
+    let l=0;while(occupate.includes(l))l++;b.lane=l;
+    gruppo.push(b);fineGruppo=Math.max(fineGruppo,b.fin);
+  });
+  if(gruppo.length)chiudi();
+  return blocchi;
+}
+
+/* Colonna di un giorno per un docente: sfondo grigio, fasce disponibili bianche, linee orarie, blocchi */
+function calColonna(docId,data){
+  const wk=fmtDate(getMonday(data));const giorno=GIORNI[(data.getDay()+6)%7];
+  const h=(CAL_ORA_FINE-CAL_ORA_INIZIO)*CAL_PX_ORA;
+  let html=`<div class="cal-col" style="height:${h}px">`;
+  db.disponibilita.filter(s=>s.docenteId===docId&&s.settimana===wk&&s.giorno===giorno).forEach(s=>{
+    const y1=calY(oraMin(s.oraInizio)),y2=calY(oraMin(s.oraFine));
+    if(y2>y1)html+=`<div class="cal-libero" style="top:${y1}px;height:${y2-y1}px" title="Disponibile ${calEsc(s.oraInizio)}–${calEsc(s.oraFine)}${(s.materie||[]).length?'\n'+calEsc(s.materie.join(', ')):''}"></div>`;
+  });
+  html+='<div class="cal-linee">';
+  for(let m=CAL_ORA_INIZIO*60+30;m<CAL_ORA_FINE*60;m+=30)html+=`<div class="cal-linea${m%60?' mezza':''}" style="top:${calY(m)}px"></div>`;
+  html+='</div>';
+  calBlocchi(docId,data).forEach(b=>{
+    const y1=calY(b.ini),y2=calY(b.fin);if(y2<=y1)return;
+    const w=100/b.lanes;
+    const pieno=b.n>=b.max&&b.tipo==='gruppo';
+    html+=`<div class="cal-blocco ${b.tipo}" style="top:${y1+1}px;height:${y2-y1-2}px;left:calc(${b.lane*w}% + 2px);width:calc(${w}% - 4px)" title="${calEsc(b.titolo)}">
+      <div class="cal-blocco-top"><span>${calEsc(b.classe?b.nomi[0]:(b.tipo==='ind'?'Individuale':'Gruppo'))}</span><span class="cal-posti${pieno?' pieno':''}">${b.n}/${b.max}</span></div>
+      <div class="cal-nomi">${(b.classe?b.nomi.slice(1):b.nomi).map(calEsc).join('<br>')}</div></div>`;
+  });
+  return html+'</div>';
+}
+function calColonnaOre(){
+  let html=`<div class="cal-ore" style="height:${(CAL_ORA_FINE-CAL_ORA_INIZIO)*CAL_PX_ORA}px">`;
+  for(let o=CAL_ORA_INIZIO;o<CAL_ORA_FINE;o++)html+=`<div class="cal-ora" style="top:${calY(o*60)}px">${String(o).padStart(2,'0')}:00</div>`;
+  return html+'</div>';
+}
+
+function renderCalendario(){
+  const cont=document.getElementById('calendario-content');if(!cont)return;
+  const docenti=calDocentiAttivi();
+  const sel=document.getElementById('cal-docente');
+  if(calDocenteId&&!docenti.some(d=>d.id===calDocenteId))calDocenteId=null;
+  if(!calDocenteId&&docenti.length)calDocenteId=docenti[0].id;
+  if(sel){sel.innerHTML=docenti.map(d=>`<option value="${d.id}"${d.id===calDocenteId?' selected':''}>${calEsc(d.nome+' '+d.cognome)}</option>`).join('');sel.style.display=calModo==='settimana'?'':'none';}
+  document.getElementById('cal-modo-settimana').classList.toggle('active',calModo==='settimana');
+  document.getElementById('cal-modo-giorno').classList.toggle('active',calModo==='giorno');
+  const lbl=document.getElementById('cal-label');
+  const oggiStr=fmtDate(new Date());
+  if(!docenti.length){cont.innerHTML='<div class="empty">Nessun docente attivo</div>';if(lbl)lbl.textContent='';return;}
+  const inizioOre=`<div class="cal-head" style="border-left:none"></div>`;
+  let html='';
+  if(calModo==='settimana'){
+    const giorni=[0,1,2,3,4,5].map(i=>addDays(calWeekStart,i));
+    if(lbl)lbl.textContent=`${giorni[0].toLocaleDateString('it-IT',{day:'numeric',month:'short'})} – ${giorni[5].toLocaleDateString('it-IT',{day:'numeric',month:'short',year:'numeric'})}`;
+    html=`<div class="cal-grid" style="grid-template-columns:52px repeat(6,minmax(110px,1fr))">${inizioOre}`;
+    giorni.forEach(d=>{html+=`<div class="cal-head${fmtDate(d)===oggiStr?' oggi':''}">${d.toLocaleDateString('it-IT',{weekday:'long'})}<span class="gg">${d.toLocaleDateString('it-IT',{day:'numeric',month:'long'})}</span></div>`;});
+    html+=calColonnaOre();
+    giorni.forEach(d=>{html+=calColonna(calDocenteId,d);});
+  }else{
+    if(lbl)lbl.textContent=calGiorno.toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+    html=`<div class="cal-grid" style="grid-template-columns:52px repeat(${docenti.length},minmax(130px,1fr))">${inizioOre}`;
+    docenti.forEach(d=>{html+=`<div class="cal-head link" onclick="calApriDocente(${d.id})" title="Apri la settimana di ${calEsc(d.nome+' '+d.cognome)}">${calEsc(d.nome)}<br><span style="font-weight:400">${calEsc(d.cognome)}</span></div>`;});
+    html+=calColonnaOre();
+    docenti.forEach(d=>{html+=calColonna(d.id,calGiorno);});
+  }
+  cont.innerHTML=html+'</div>';
 }
 
 function updateFiltroDocente(){
@@ -2875,13 +3080,16 @@ function esportaVCardSenzaEmail(){
 }
 
 function switchTab(t){
-  ['studenti','docenti','pianificazione','classi','presenze','pagamenti','lezioni','contatti','archivio'].forEach(x=>{document.getElementById('tab-'+x).style.display=x===t?'block':'none';});
-  document.querySelectorAll('.topbar > .tabs > .tab').forEach((el,i)=>{el.classList.toggle('active',['studenti','docenti','pianificazione','classi','presenze','pagamenti','lezioni','contatti','archivio'][i]===t);});
+  ['studenti','docenti','pianificazione','calendario','classi','presenze','pagamenti','lezioni','contatti','archivio'].forEach(x=>{document.getElementById('tab-'+x).style.display=x===t?'block':'none';});
+  document.querySelectorAll('.topbar > .tabs > .tab').forEach((el,i)=>{el.classList.toggle('active',['studenti','docenti','pianificazione','calendario','classi','presenze','pagamenti','lezioni','contatti','archivio'][i]===t);});
   if(t==='presenze')renderPresenze();
   if(t==='studenti'&&dettaglioAperto){apriDettaglio(dettaglioAperto);}
   if(t==='pagamenti')renderPagamenti();
   if(t==='lezioni'){renderLezioni();updateFiltroStudente();}
   if(t==='pianificazione'){updateFiltroDocente();renderPianificazione();}
+  /* Aprendo il calendario riscarico le disponibilità aggiornate dai docenti.
+     Se la segreteria ha modifiche alle disponibilità non ancora salvate online, non riscarico (per non perderle). */
+  if(t==='calendario'){renderCalendario();if(cloudReady&&!dispDirty)ricaricaDisponibilita();}
   if(t==='docenti')renderDocenti();
   if(t==='contatti')renderContatti();
   if(t==='archivio')renderArchivio();
