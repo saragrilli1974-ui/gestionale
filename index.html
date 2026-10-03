@@ -1364,7 +1364,7 @@ function calBlocchi(docId,data){
   /* Individuali: un blocco per lezione */
   ass.filter(a=>a.tipoLezione==='individuale').forEach(a=>{
     const st=db.studenti.find(x=>x.id===a.studenteId);
-    blocchi.push({tipo:'ind',ini:oraMin(a.oraInizio),fin:oraMin(a.oraFine),nomi:[calNomeBreve(st)],titolo:`Individuale ${a.oraInizio}–${a.oraFine}\n${st?st.nome+' '+st.cognome:'?'} — ${a.materia||''}`,n:1,max:1});
+    blocchi.push({tipo:'ind',assIds:[a.id],slotId:a.disponibilitaId,ini:oraMin(a.oraInizio),fin:oraMin(a.oraFine),nomi:[calNomeBreve(st)],titolo:`Individuale ${a.oraInizio}–${a.oraFine}\n${st?st.nome+' '+st.cognome:'?'} — ${a.materia||''}`,n:1,max:1});
   });
   /* Gruppo: unisco le lezioni che si sovrappongono in un unico blocco */
   const gr=ass.filter(a=>a.tipoLezione!=='individuale').sort((x,y)=>oraMin(x.oraInizio)-oraMin(y.oraInizio));
@@ -1378,7 +1378,7 @@ function calBlocchi(docId,data){
     if(!b.ass)return;
     let n=0;for(let m=b.ini;m<b.fin;m+=30){const c=b.ass.filter(a=>oraMin(a.oraInizio)<=m&&m<oraMin(a.oraFine)).length;if(c>n)n=c;}
     const righe=b.ass.map(a=>{const st=db.studenti.find(x=>x.id===a.studenteId);return `${st?st.nome+' '+st.cognome:'?'} — ${a.materia||''} (${a.oraInizio}–${a.oraFine})`;});
-    b.tipo='gruppo';b.n=n;b.max=MAX_ST;b.slotId=b.ass[0].disponibilitaId;
+    b.tipo='gruppo';b.n=n;b.max=MAX_ST;b.slotId=b.ass[0].disponibilitaId;b.assIds=b.ass.map(a=>a.id);
     b.nomi=b.ass.map(a=>calNomeBreve(db.studenti.find(x=>x.id===a.studenteId)));
     b.titolo=`Gruppo — ${n}/${MAX_ST} posti occupati\n`+righe.join('\n');
     delete b.ass;
@@ -1420,8 +1420,8 @@ function calColonna(docId,data){
     const y1=calY(b.ini),y2=calY(b.fin);if(y2<=y1)return;
     const w=100/b.lanes;
     const pieno=b.n>=b.max&&b.tipo==='gruppo';
-    const cliccabile=b.tipo==='gruppo'&&!b.classe&&!pieno&&b.slotId;
-    html+=`<div class="cal-blocco ${b.tipo}${cliccabile?' cliccabile':''}"${cliccabile?` onclick="calAssegna(event,${b.slotId})"`:''} style="top:${y1+1}px;height:${y2-y1-2}px;left:calc(${b.lane*w}% + 2px);width:calc(${w}% - 4px)" title="${calEsc(b.titolo+(cliccabile?'\nClicca per aggiungere uno studente':''))}">
+    const cliccabile=!b.classe&&b.assIds&&b.assIds.length;
+    html+=`<div class="cal-blocco ${b.tipo}${cliccabile?' cliccabile':''}"${cliccabile?` onclick="calGestisciBlocco(event,'${b.assIds.join(',')}',${b.slotId||0},${pieno?1:0})"`:''} style="top:${y1+1}px;height:${y2-y1-2}px;left:calc(${b.lane*w}% + 2px);width:calc(${w}% - 4px)" title="${calEsc(b.titolo+(cliccabile?'\nClicca per togliere, spostare o aggiungere studenti':''))}">
       <div class="cal-blocco-top"><span>${calEsc(b.classe?b.nomi[0]:(b.tipo==='ind'?'Individuale':'Gruppo'))}</span><span class="cal-posti${pieno?' pieno':''}">${b.n}/${b.max}</span></div>
       <div class="cal-nomi">${(b.classe?b.nomi.slice(1):b.nomi).map(calEsc).join('<br>')}</div></div>`;
   });
@@ -1444,6 +1444,66 @@ function calAssegna(ev,slotId){
     const scelta=ok.find(o=>oraMin(o.value.split('|')[0])===minCliccato)||ok[ok.length-1];
     if(scelta)sel.value=scelta.value;
   },120);
+}
+/* Clic su un blocco-lezione: finestra con gli studenti, ognuno con Sposta / Togli */
+function calGestisciBlocco(ev,idsStr,slotId,pieno){
+  const ids=String(idsStr).split(',').map(Number);
+  const col=ev.currentTarget.closest('.cal-col');
+  const yClick=ev.clientY-col.getBoundingClientRect().top;
+  window._calClick={slotId,yClick};
+  const righe=ids.map(id=>{
+    const a=db.assegnazioni.find(x=>x.id===id);if(!a)return'';
+    const st=db.studenti.find(x=>x.id===a.studenteId);
+    return `<div style="display:flex;align-items:center;gap:8px;background:#fafaf8;border-radius:8px;padding:10px 12px;margin-bottom:6px">
+      <div style="flex:1"><div style="font-weight:500">${calEsc(st?st.nome+' '+st.cognome:'?')}</div>
+      <div style="font-size:12px;color:#9b9a94">${calEsc(a.giorno)} ${calEsc(a.oraInizio)}–${calEsc(a.oraFine)} · ${calEsc(a.materia||'')}${a.tipoLezione==='individuale'?' · individuale':''}</div></div>
+      <button class="btn sm" onclick="calSpostaAss(${a.id})"><i class="ti ti-arrows-exchange"></i> Sposta</button>
+      <button class="btn danger sm" onclick="calTogliAss(${a.id})"><i class="ti ti-x"></i> Togli</button></div>`;
+  }).join('');
+  const puoAggiungere=slotId&&!pieno&&ids.every(id=>{const a=db.assegnazioni.find(x=>x.id===id);return a&&a.tipoLezione!=='individuale';});
+  document.getElementById('modal-container').innerHTML=`<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal"><h2>Studenti in questa lezione</h2>
+    ${righe||'<div class="empty">Nessuno studente</div>'}
+    <div class="modal-footer">${puoAggiungere?`<button class="btn" onclick="calAggiungiDaBlocco()"><i class="ti ti-user-plus"></i> Aggiungi studente</button>`:''}<button class="btn primary" onclick="closeModal()">Chiudi</button></div>
+  </div></div>`;
+}
+function calAggiungiDaBlocco(){
+  const c=window._calClick;if(!c)return;
+  const col={getBoundingClientRect:()=>({top:0})};
+  calAssegna({currentTarget:{closest:()=>col},clientY:c.yClick},c.slotId);
+}
+/* Elimina la lezione "Da confermare" collegata a un'assegnazione. Se è già stata registrata la lascio. */
+function eliminaLezioneDiAss(a){
+  const gi=GIORNI.indexOf(a.giorno);
+  const data=fmtDate(addDays(new Date(a.settimana+'T12:00:00'),gi));
+  const orario=`${a.oraInizio}–${a.oraFine}`;
+  const lez=db.lezioni.filter(l=>l.studenteId===a.studenteId&&l.data===data&&l.orario===orario);
+  const daTogliere=lez.filter(l=>l.stato==='Da confermare').map(l=>l.id);
+  db.lezioni=db.lezioni.filter(l=>!daTogliere.includes(l.id));
+  return lez.length>daTogliere.length; /* true = c'era una lezione già registrata, non tolta */
+}
+function calTogliAss(id){
+  const a=db.assegnazioni.find(x=>x.id===id);if(!a)return;
+  const st=db.studenti.find(x=>x.id===a.studenteId);
+  if(!confirm(`Togliere ${st?st.nome+' '+st.cognome:'lo studente'} da ${a.giorno} ${a.oraInizio}–${a.oraFine}?`))return;
+  db.assegnazioni=db.assegnazioni.filter(x=>x.id!==id);
+  const registrata=eliminaLezioneDiAss(a);
+  planDirty=true;
+  saveDb();closeModal();renderAll();
+  if(registrata)alert('Attenzione: la lezione risulta già registrata nelle presenze, quindi l\'ho lasciata nella scheda Lezioni.');
+}
+function calSpostaAss(id){
+  const a=db.assegnazioni.find(x=>x.id===id);if(!a)return;
+  window._calSposta=id;
+  currentWeekStart=new Date(a.settimana+'T12:00:00');
+  openModal('nuova-assegnazione',a.disponibilitaId);
+  window._calSposta=id;
+  setTimeout(()=>{
+    const h=document.querySelector('#modal-container h2');if(h)h.textContent='Sposta studente';
+    const s=document.getElementById('ass-studente');if(s){s.value=String(a.studenteId);s.disabled=true;}
+    const ind=document.getElementById('ass-individuale');if(ind)ind.checked=a.tipoLezione==='individuale';
+    const m=document.getElementById('ass-materia');if(m&&[...m.options].some(o=>o.value===a.materia))m.value=a.materia;
+    const btn=document.querySelector('#modal-container .modal-footer .btn.primary');if(btn)btn.textContent='Sposta qui';
+  },150);
 }
 function calColonnaOre(){
   let html=`<div class="cal-ore" style="height:${(CAL_ORA_FINE-CAL_ORA_INIZIO)*CAL_PX_ORA}px">`;
@@ -2078,7 +2138,7 @@ function openModal(tipo,arg){
   if(tipo==='nuova-disponibilita'&&arg)setTimeout(()=>aggiornaMaterieDisp(),50);
 }
 
-function closeModal(){document.getElementById('modal-container').innerHTML='';}
+function closeModal(){document.getElementById('modal-container').innerHTML='';window._calSposta=null;}
 
 function salvaClasse(id){
   const nome=document.getElementById('cl-nome').value.trim();
@@ -2382,8 +2442,10 @@ function salvaAssegnazione(){
   const slot=db.disponibilita.find(x=>x.id===slotId);if(!slot){alert('Slot non trovato');return;}
   const [oraI,oraF]=orarioVal.split('|');
   const isInd=document.getElementById('ass-individuale')&&document.getElementById('ass-individuale').checked;
+  const spostaId=window._calSposta||null;
+  const assAttive=db.assegnazioni.filter(a=>a.id!==spostaId);
   // Assegnazioni nello stesso slot e orario sovrapposto
-  const assStessoSlot=db.assegnazioni.filter(a=>a.disponibilitaId===slotId&&a.oraInizio<oraF&&oraI<a.oraFine);
+  const assStessoSlot=assAttive.filter(a=>a.disponibilitaId===slotId&&a.oraInizio<oraF&&oraI<a.oraFine);
   const nAss=assStessoSlot.length;
   // Blocco individuale: se sto inserendo una individuale, lo slot deve essere vuoto in quell'orario
   if(isInd&&nAss>0){alert('Impossibile: in questa fascia oraria ci sono già altri studenti. Una lezione individuale richiede lo slot libero.');return;}
@@ -2393,7 +2455,7 @@ function salvaAssegnazione(){
   // Capienza gruppo
   if(!isInd&&nAss>=MAX_ST){if(!confirm(`In questa fascia oraria ci sono già ${MAX_ST} studenti. Continuare?`))return;}
   // Controllo sovrapposizione oraria: stesso studente, stessa settimana, stesso giorno, orari che si intersecano
-  const altreAssegnazioni=db.assegnazioni.filter(a=>a.studenteId===stId&&a.settimana===slot.settimana&&a.giorno===slot.giorno);
+  const altreAssegnazioni=assAttive.filter(a=>a.studenteId===stId&&a.settimana===slot.settimana&&a.giorno===slot.giorno);
   const sovrapposta=altreAssegnazioni.find(a=>a.oraInizio<oraF&&oraI<a.oraFine);
   if(sovrapposta){
     alert(`Impossibile assegnare: ${db.studenti.find(x=>x.id===stId)?.nome} ha già una lezione ${sovrapposta.giorno} ${sovrapposta.oraInizio}-${sovrapposta.oraFine} con ${sovrapposta.docente} (${sovrapposta.materia}). Gli orari si sovrappongono.`);
@@ -2401,6 +2463,7 @@ function salvaAssegnazione(){
   }
   const doc=db.docenti.find(x=>x.id===slot.docenteId);
   const durata=Math.max(0.5,(oraMin(oraF)-oraMin(oraI))/60);
+  if(spostaId){const vecchia=db.assegnazioni.find(a=>a.id===spostaId);if(vecchia){db.assegnazioni=db.assegnazioni.filter(a=>a.id!==spostaId);eliminaLezioneDiAss(vecchia);}}
   db.assegnazioni.push({id:db.nextId++,disponibilitaId:slotId,studenteId:stId,materia,docente:doc?doc.nome+' '+doc.cognome:'',giorno:slot.giorno,oraInizio:oraI,oraFine:oraF,settimana:slot.settimana,tipoLezione:isInd?'individuale':'gruppo'});
   planDirty=true;
   const gi=GIORNI.indexOf(slot.giorno);
@@ -2604,9 +2667,11 @@ function salvaAssegnazioneDaStudente(stId){
 
 function rimuoviAssegnazione(id){
   if(!confirm('Rimuovere questo studente dallo slot?'))return;
+  const vecchia=db.assegnazioni.find(a=>a.id===id);
   db.assegnazioni=db.assegnazioni.filter(a=>a.id!==id);
+  if(vecchia)eliminaLezioneDiAss(vecchia);
   planDirty=true;
-  saveDb();renderPianificazione();
+  saveDb();renderAll();
 }
 
 function eliminaDisponibilita(id){
