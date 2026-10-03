@@ -1513,7 +1513,7 @@ function calColonnaOre(){
 
 function renderCalendario(){
   const cont=document.getElementById('calendario-content');if(!cont)return;
-  const docenti=calDocentiAttivi();
+  let docenti=calDocentiAttivi();
   const sel=document.getElementById('cal-docente');
   if(calDocenteId&&!docenti.some(d=>d.id===calDocenteId))calDocenteId=null;
   if(!calDocenteId&&docenti.length)calDocenteId=docenti[0].id;
@@ -1534,6 +1534,10 @@ function renderCalendario(){
     giorni.forEach(d=>{html+=calColonna(calDocenteId,d);});
   }else{
     if(lbl)lbl.textContent=calGiorno.toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+    /* Solo i docenti che quel giorno hanno disponibilità o lezioni */
+    const wkG=fmtDate(getMonday(calGiorno)),giornoG=GIORNI[(calGiorno.getDay()+6)%7];
+    docenti=docenti.filter(d=>db.disponibilita.some(s=>s.docenteId===d.id&&s.settimana===wkG&&s.giorno===giornoG)||calBlocchi(d.id,calGiorno).length);
+    if(!docenti.length){cont.innerHTML='<div class="empty">Nessun docente ha inserito disponibilità per questo giorno</div>';return;}
     html=`<div class="cal-grid" style="grid-template-columns:52px repeat(${docenti.length},minmax(130px,1fr))">${inizioOre}`;
     docenti.forEach(d=>{html+=`<div class="cal-head link" onclick="calApriDocente(${d.id})" title="Apri la settimana di ${calEsc(d.nome+' '+d.cognome)}">${calEsc(d.nome)}<br><span style="font-weight:400">${calEsc(d.cognome)}</span></div>`;});
     html+=calColonnaOre();
